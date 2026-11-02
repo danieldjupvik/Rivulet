@@ -1837,7 +1837,7 @@ final class UniversalPlayerViewModel: ObservableObject {
                 activity.title = metadata.title
                 activity.isEligibleForSearch = true
                 activity.userInfo = ["ratingKey": metadata.ratingKey ?? ""]
-                activity.targetContentIdentifier = "rivulet://play?ratingKey=\(metadata.ratingKey ?? "")"
+                activity.targetContentIdentifier = RivuletLink(.play, ratingKey: metadata.ratingKey ?? "").url?.absoluteString
                 self.userActivity = activity
                 activity.becomeCurrent()
             }

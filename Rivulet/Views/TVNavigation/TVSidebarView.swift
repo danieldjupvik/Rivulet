@@ -703,7 +703,7 @@ struct TVSidebarView: View {
 
     // MARK: - Deep Link Detail
 
-    /// Present detail for a `rivulet://detail` deep link (Top Shelf / Siri).
+    /// Present detail for a `rivulet-lab://detail` deep link (Top Shelf / Siri).
     /// Routes exactly like the home tile menu's `selectMediaItem`: episodes and
     /// seasons get the title-first detail page, everything else the standalone
     /// expanded detail. Both are the UIKit surfaces normal in-app navigation uses.
@@ -732,7 +732,7 @@ struct TVSidebarView: View {
         root.dismiss(animated: false) { present(root) }
     }
 
-    /// Play for a `rivulet://play` link. A show or a season resolves to the
+    /// Play for a `rivulet-lab://play` link. A show or a season resolves to the
     /// episode its own Play button means; with none to play, its detail opens.
     private func playForDeepLink(_ metadata: PlexMetadata) {
         guard let item = deepLinkItem(metadata), item.kind == .show || item.kind == .season,

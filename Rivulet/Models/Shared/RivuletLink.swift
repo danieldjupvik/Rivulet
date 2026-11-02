@@ -5,7 +5,7 @@
 //  RivuletLink.swift
 //  Rivulet
 //
-//  The one definition of a `rivulet://` deep link. Compiled into the app AND
+//  The one definition of a `rivulet-lab://` deep link. Compiled into the app AND
 //  the Top Shelf extension, so the builder and the parser cannot drift.
 //
 
@@ -17,7 +17,7 @@ struct RivuletLink: Equatable, Sendable {
         case detail    // open the item's detail
     }
 
-    static let scheme = "rivulet"
+    static let scheme = "rivulet-lab"
 
     let action: Action
     let ratingKey: String
@@ -31,7 +31,7 @@ struct RivuletLink: Equatable, Sendable {
         self.server = server
     }
 
-    /// Parses `rivulet://<action>?ratingKey=<key>` and `rivulet://<action>/<key>`.
+    /// Parses `rivulet-lab://<action>?ratingKey=<key>` and `rivulet-lab://<action>/<key>`.
     /// The path form exists for senders that drop the query string (the Apple TV
     /// Companion channel). A query ratingKey wins when both are present.
     init?(url: URL) {

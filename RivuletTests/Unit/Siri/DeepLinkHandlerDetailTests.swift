@@ -30,30 +30,39 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
 
     func testBuiltURLShape() {
         XCTAssertEqual(RivuletLink(.detail, ratingKey: "12345").url?.absoluteString,
-                       "rivulet://detail?ratingKey=12345")
-        XCTAssertEqual(RivuletLink(.play, ratingKey: "1").url?.absoluteString, "rivulet://play?ratingKey=1")
+                       "rivulet-lab://detail?ratingKey=12345")
+        XCTAssertEqual(RivuletLink(.play, ratingKey: "1").url?.absoluteString, "rivulet-lab://play?ratingKey=1")
+    }
+
+    func testLabSchemeMatchesRegistrationAndRejectsOfficialLinks() throws {
+        let types = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]])
+        let schemes = types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+        XCTAssertTrue(schemes.contains(RivuletLink.scheme))
+        XCTAssertFalse(schemes.contains("rivulet"))
+        XCTAssertNil(RivuletLink(url: URL(string: "rivulet://play?ratingKey=1")!))
+        XCTAssertNil(RivuletLink(url: URL(string: "rivulet://detail?ratingKey=1")!))
     }
 
     func testPathFormMatchesQueryForm() throws {
         for action in ["play", "detail"] {
-            let path = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "rivulet://\(action)/1777"))))
-            let query = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "rivulet://\(action)?ratingKey=1777"))))
+            let path = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "rivulet-lab://\(action)/1777"))))
+            let query = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "rivulet-lab://\(action)?ratingKey=1777"))))
             XCTAssertEqual(path, query)
             XCTAssertEqual(path.ratingKey, "1777")
         }
-        let trailing = RivuletLink(url: URL(string: "rivulet://play/1777/")!)
+        let trailing = RivuletLink(url: URL(string: "rivulet-lab://play/1777/")!)
         XCTAssertEqual(trailing?.ratingKey, "1777")
-        let withServer = RivuletLink(url: URL(string: "rivulet://detail/5?server=abc")!)
+        let withServer = RivuletLink(url: URL(string: "rivulet-lab://detail/5?server=abc")!)
         XCTAssertEqual(withServer, RivuletLink(.detail, ratingKey: "5", server: "abc"))
     }
 
     func testQueryWinsOverPath() {
-        XCTAssertEqual(RivuletLink(url: URL(string: "rivulet://play/1?ratingKey=2")!)?.ratingKey, "2")
+        XCTAssertEqual(RivuletLink(url: URL(string: "rivulet-lab://play/1?ratingKey=2")!)?.ratingKey, "2")
     }
 
     func testBadLinksAreRejected() {
-        for s in ["rivulet://play", "rivulet://play/", "rivulet://play?ratingKey=", "rivulet://play/1/2",
-                  "rivulet://bogus/1", "other://play/1", "rivulet:///1777"] {
+        for s in ["rivulet-lab://play", "rivulet-lab://play/", "rivulet-lab://play?ratingKey=", "rivulet-lab://play/1/2",
+                  "rivulet-lab://bogus/1", "other://play/1", "rivulet-lab:///1777"] {
             XCTAssertNil(RivuletLink(url: URL(string: s)!), s)
         }
     }
@@ -64,8 +73,8 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
     }
 
     func testParserRejectsWhatItCannotResolve() {
-        for bad in ["http://play?ratingKey=1", "rivulet://open?ratingKey=1",
-                    "rivulet://play", "rivulet://play?ratingKey=", "rivulet://detail?server=x"] {
+        for bad in ["http://play?ratingKey=1", "rivulet-lab://open?ratingKey=1",
+                    "rivulet-lab://play", "rivulet-lab://play?ratingKey=", "rivulet-lab://detail?server=x"] {
             XCTAssertNil(RivuletLink(url: URL(string: bad)!), bad)
         }
     }
