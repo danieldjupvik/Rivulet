@@ -6284,16 +6284,18 @@ final class PlexHomeViewController: UIViewController {
     // progressively, so rows scroll out smoothly.
     private var offsetLink: CADisplayLink?
     private var offsetTargetY: CGFloat = 0
+    private var offsetPositionY: CGFloat = 0
     private var offsetVelocity: CGFloat = 0
-    private var offsetLastTick: CFTimeInterval = 0
+    private var offsetLastTick: CFTimeInterval?
 
     /// Follows `targetY` with the system's focus-scroll model. A scroll already
     /// in flight is retargeted and keeps its speed, so rapid moves never restart.
     private func animateContentOffset(toY targetY: CGFloat) {
         offsetTargetY = targetY
         guard offsetLink == nil else { return }
+        offsetPositionY = collectionView.contentOffset.y
         offsetVelocity = 0
-        offsetLastTick = CACurrentMediaTime()
+        offsetLastTick = nil
         // Weak proxy target: CADisplayLink retains its target, and a discarded instance with a live link
         // would leak with its observers still firing. The proxy invalidates once the VC dies.
         let link = CADisplayLink(target: DisplayLinkProxy(self), selector: #selector(DisplayLinkProxy.tick(_:)))
@@ -6316,11 +6318,13 @@ final class PlexHomeViewController: UIViewController {
     }
 
     @objc fileprivate func stepOffset(_ link: CADisplayLink) {
-        let now = CACurrentMediaTime()
-        let step = FocusScrollMotion.follow(from: collectionView.contentOffset.y, to: offsetTargetY,
-                                            velocity: offsetVelocity, dt: now - offsetLastTick,
+        let now = link.targetTimestamp
+        let dt = now - (offsetLastTick ?? link.timestamp)
+        let step = FocusScrollMotion.follow(from: offsetPositionY, to: offsetTargetY,
+                                            velocity: offsetVelocity, dt: dt,
                                             viewport: collectionView.bounds.height)
         offsetLastTick = now
+        offsetPositionY = step.y
         offsetVelocity = step.velocity
         collectionView.contentOffset = CGPoint(x: 0, y: step.y)
         if step.done {

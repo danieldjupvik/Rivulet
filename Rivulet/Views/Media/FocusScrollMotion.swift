@@ -33,22 +33,29 @@ enum FocusScrollMotion {
     /// `velocity` is in points per second; feed the returned one back in.
     static func follow(from y: CGFloat, to target: CGFloat, velocity: CGFloat,
                        dt: CFTimeInterval, viewport: CGFloat) -> (y: CGFloat, velocity: CGFloat, done: Bool) {
-        let dt = min(max(dt, 1.0 / 240), 0.05)
+        var remaining = min(max(dt, 1.0 / 240), 0.05)
         var y = y
+        var velocity = velocity
         if viewport > 0, abs(target - y) > 2 * viewport {
             y = target - (target > y ? 2 : -2) * viewport
         }
-        let k = CGFloat(pow(convergencePerMillisecond, dt * 1000))
-        var delta = (target - y) * (1 - k)
-        let speed = abs(delta) / CGFloat(dt)
-        let prior = velocity * delta > 0 ? abs(velocity) : 0
-        if speed > prior {
-            let capped = min(speed, prior + maxAcceleration * CGFloat(dt))
-            delta = (delta < 0 ? -capped : capped) * CGFloat(dt)
+        // Integrate delayed frames in 60 Hz steps so a hitch doesn't amplify acceleration.
+        while remaining > 1e-9 {
+            let dt = min(remaining, 1.0 / 60)
+            let k = CGFloat(pow(convergencePerMillisecond, dt * 1000))
+            var delta = (target - y) * (1 - k)
+            let speed = abs(delta) / CGFloat(dt)
+            let prior = velocity * delta > 0 ? abs(velocity) : 0
+            if speed > prior {
+                let capped = min(speed, prior + maxAcceleration * CGFloat(dt))
+                delta = (delta < 0 ? -capped : capped) * CGFloat(dt)
+            }
+            y += delta
+            if abs(target - y) < 0.5 { return (target, 0, true) }
+            velocity = delta / CGFloat(dt)
+            remaining -= dt
         }
-        y += delta
-        if abs(target - y) < 0.5 { return (target, 0, true) }
-        return (y, delta / CGFloat(dt), false)
+        return (y, velocity, false)
     }
 
     /// Smallest offset change that keeps `frame` at least `edgeInset` inside a

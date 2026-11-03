@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import Rivulet
 
@@ -39,5 +40,36 @@ final class FocusScrollMotionTests: XCTestCase {
         XCTAssertEqual(FocusScrollMotion.minimalOffset(revealing: row, from: 0, height: 1080), 1500 + 430 - 1080 + 180)
         XCTAssertEqual(FocusScrollMotion.minimalOffset(revealing: row, from: 1100, height: 1080), 1100)
         XCTAssertEqual(FocusScrollMotion.minimalOffset(revealing: row, from: 2000, height: 1080), 1500 - 180)
+    }
+}
+
+struct FocusScrollFrameTimingTests {
+    @Test(arguments: [2, 3], [CGFloat(-500), 500])
+    func delayedFrameMatchesRegularFrames(frameCount: Int, target: CGFloat) {
+        let frame = 1.0 / 60
+        var regular = (y: CGFloat.zero, velocity: CGFloat.zero, done: false)
+        for _ in 0..<frameCount {
+            regular = FocusScrollMotion.follow(from: regular.y, to: target,
+                                               velocity: regular.velocity, dt: frame, viewport: 1080)
+        }
+        let delayed = FocusScrollMotion.follow(from: 0, to: target, velocity: 0,
+                                               dt: Double(frameCount) * frame, viewport: 1080)
+        #expect(abs(delayed.y - regular.y) < 0.0001)
+        #expect(abs(delayed.velocity - regular.velocity) < 0.0001)
+        #expect(delayed.done == regular.done)
+    }
+
+    @Test(arguments: [CGFloat(-500), 500])
+    func delayedReversalMatchesRegularFrames(target: CGFloat) {
+        let frame = 1.0 / 60
+        let velocity: CGFloat = target > 0 ? -1200 : 1200
+        let first = FocusScrollMotion.follow(from: 0, to: target, velocity: velocity,
+                                             dt: frame, viewport: 1080)
+        let regular = FocusScrollMotion.follow(from: first.y, to: target, velocity: first.velocity,
+                                               dt: frame, viewport: 1080)
+        let delayed = FocusScrollMotion.follow(from: 0, to: target, velocity: velocity,
+                                               dt: 2 * frame, viewport: 1080)
+        #expect(abs(delayed.y - regular.y) < 0.0001)
+        #expect(abs(delayed.velocity - regular.velocity) < 0.0001)
     }
 }
