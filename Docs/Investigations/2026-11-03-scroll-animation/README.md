@@ -4,11 +4,13 @@ Branch: `fix/scroll-animation-improvements`, based on fork main `96332a09`.
 Commit: `13ffdc938a8600d34e46ba99f555dcdb3a419c20` — `fix: improve focus scroll timing and settling`.
 
 This note is tracked on the feature branch so its findings survive checkout cleanup.
-The adjacent `evidence/` directory remains local and gitignored: raw exports,
-recordings, and imagery are not included in the documentation commit. Evidence was
-copied out of `/tmp/rivulet-scroll-review` to preserve it beyond temporary-directory
-cleanup. Back up that directory separately before deleting the local checkout.
-This investigation note can be omitted from an eventual upstream contribution.
+A small selection in `evidence/` is also tracked: reproduction scripts, numeric
+scroll logs, motion CSVs, and a compact Instruments summary. See
+[evidence/README.md](evidence/README.md) for the inventory and rerun instructions.
+Other evidence, including raw exports and imagery, remains local and gitignored.
+It was copied out of `/tmp/rivulet-scroll-review` to survive temporary-directory
+cleanup. Back up those local artifacts separately before deleting the checkout.
+The investigation documentation can be omitted from an upstream contribution.
 
 ## Stopping point
 
@@ -127,5 +129,5 @@ The artifacts can contain personal library imagery and should remain local.
 
 Final verification: clean simulator build and all targeted tests passed after removing
 instrumentation. Final build log is `evidence/final-tests.log`. No full-suite run.
-Analysis scripts retain their original /tmp paths; update those paths to the local
-evidence directory (and supplied video paths) before rerunning later.
+The tracked reproduction scripts accept input paths; see `evidence/README.md`.
+Older, untracked investigation scripts still contain their original local paths.

@@ -1,0 +1,57 @@
+[ScrollTrace] ready: PlexHomeViewController
+[ScrollTrace] requested target=515.0
+[ScrollTrace] begin start=6344.913512333334 frames=53
+[ScrollTrace] 0 callbackMs=30.488 frameMs=46.236 dtMs=16.683 target=515.000 before=0.000 calculated=10.010 after=10.000 workMs=0.358
+[ScrollTrace] 1 callbackMs=47.201 frameMs=62.919 dtMs=16.683 target=515.000 before=10.000 calculated=30.029 after=30.000 workMs=0.055
+[ScrollTrace] 2 callbackMs=64.146 frameMs=79.602 dtMs=16.683 target=515.000 before=30.000 calculated=60.049 after=60.000 workMs=0.061
+[ScrollTrace] 3 callbackMs=80.085 frameMs=96.285 dtMs=16.683 target=515.000 before=60.000 calculated=100.068 after=100.000 workMs=0.093
+[ScrollTrace] 4 callbackMs=96.945 frameMs=112.968 dtMs=16.683 target=515.000 before=100.000 calculated=143.404 after=143.500 workMs=0.222
+[ScrollTrace] 5 callbackMs=113.480 frameMs=129.651 dtMs=16.683 target=515.000 before=143.500 calculated=182.355 after=182.500 workMs=0.176
+[ScrollTrace] 6 callbackMs=130.168 frameMs=146.334 dtMs=16.683 target=515.000 before=182.500 calculated=217.276 after=217.500 workMs=0.089
+[ScrollTrace] 7 callbackMs=196.860 frameMs=213.065 dtMs=66.732 target=515.000 before=217.500 calculated=301.354 after=301.500 workMs=0.139
+[ScrollTrace] 8 callbackMs=213.538 frameMs=229.748 dtMs=16.683 target=515.000 before=301.500 calculated=323.830 after=324.000 workMs=0.076
+[ScrollTrace] 9 callbackMs=230.244 frameMs=246.431 dtMs=16.683 target=515.000 before=324.000 calculated=343.976 after=344.000 workMs=0.066
+[ScrollTrace] 10 callbackMs=246.960 frameMs=263.114 dtMs=16.683 target=515.000 before=344.000 calculated=361.885 after=362.000 workMs=0.079
+[ScrollTrace] 11 callbackMs=263.621 frameMs=279.797 dtMs=16.683 target=515.000 before=362.000 calculated=378.002 after=378.000 workMs=0.069
+[ScrollTrace] 12 callbackMs=280.275 frameMs=296.480 dtMs=16.683 target=515.000 before=378.000 calculated=392.329 after=392.500 workMs=0.031
+[ScrollTrace] 13 callbackMs=297.001 frameMs=313.163 dtMs=16.683 target=515.000 before=392.500 calculated=405.312 after=405.500 workMs=0.063
+[ScrollTrace] 14 callbackMs=313.682 frameMs=329.846 dtMs=16.683 target=515.000 before=405.500 calculated=416.952 after=417.000 workMs=0.063
+[ScrollTrace] 15 callbackMs=330.336 frameMs=346.529 dtMs=16.683 target=515.000 before=417.000 calculated=427.250 after=427.000 workMs=0.040
+[ScrollTrace] 16 callbackMs=347.025 frameMs=363.211 dtMs=16.683 target=515.000 before=427.000 calculated=436.204 after=436.000 workMs=0.042
+[ScrollTrace] 17 callbackMs=363.735 frameMs=379.894 dtMs=16.683 target=515.000 before=436.000 calculated=444.263 after=444.500 workMs=0.046
+[ScrollTrace] 18 callbackMs=380.398 frameMs=396.577 dtMs=16.683 target=515.000 before=444.500 calculated=451.873 after=452.000 workMs=0.052
+[ScrollTrace] 19 callbackMs=397.077 frameMs=413.260 dtMs=16.683 target=515.000 before=452.000 calculated=458.589 after=458.500 workMs=0.060
+[ScrollTrace] 20 callbackMs=413.755 frameMs=429.943 dtMs=16.683 target=515.000 before=458.500 calculated=464.409 after=464.500 workMs=0.254
+[ScrollTrace] 21 callbackMs=430.422 frameMs=446.626 dtMs=16.683 target=515.000 before=464.500 calculated=469.782 after=470.000 workMs=0.177
+[ScrollTrace] 22 callbackMs=447.114 frameMs=463.309 dtMs=16.683 target=515.000 before=470.000 calculated=474.706 after=474.500 workMs=0.145
+[ScrollTrace] 23 callbackMs=463.792 frameMs=479.992 dtMs=16.683 target=515.000 before=474.500 calculated=478.736 after=478.500 workMs=0.176
+[ScrollTrace] 24 callbackMs=480.480 frameMs=496.675 dtMs=16.683 target=515.000 before=478.500 calculated=482.317 after=482.500 workMs=0.224
+[ScrollTrace] 25 callbackMs=497.172 frameMs=513.358 dtMs=16.683 target=515.000 before=482.500 calculated=485.899 after=486.000 workMs=0.244
+[ScrollTrace] 26 callbackMs=513.849 frameMs=530.041 dtMs=16.683 target=515.000 before=486.000 calculated=489.033 after=489.000 workMs=0.219
+[ScrollTrace] 27 callbackMs=530.575 frameMs=546.724 dtMs=16.683 target=515.000 before=489.000 calculated=491.719 after=491.500 workMs=0.284
+[ScrollTrace] 28 callbackMs=547.240 frameMs=563.407 dtMs=16.683 target=515.000 before=491.500 calculated=493.958 after=494.000 workMs=0.276
+[ScrollTrace] 29 callbackMs=563.980 frameMs=580.089 dtMs=16.683 target=515.000 before=494.000 calculated=496.196 after=496.000 workMs=0.361
+[ScrollTrace] 30 callbackMs=580.602 frameMs=596.772 dtMs=16.683 target=515.000 before=496.000 calculated=497.987 after=498.000 workMs=0.338
+[ScrollTrace] 31 callbackMs=601.029 frameMs=613.455 dtMs=16.683 target=515.000 before=498.000 calculated=499.778 after=500.000 workMs=0.284
+[ScrollTrace] 32 callbackMs=616.963 frameMs=630.138 dtMs=16.683 target=515.000 before=500.000 calculated=501.569 after=501.500 workMs=0.292
+[ScrollTrace] 33 callbackMs=632.670 frameMs=646.821 dtMs=16.683 target=515.000 before=501.500 calculated=502.912 after=503.000 workMs=0.218
+[ScrollTrace] 34 callbackMs=649.176 frameMs=663.504 dtMs=16.683 target=515.000 before=503.000 calculated=504.255 after=504.500 workMs=0.229
+[ScrollTrace] 35 callbackMs=665.932 frameMs=680.187 dtMs=16.683 target=515.000 before=504.500 calculated=505.598 after=505.500 workMs=0.249
+[ScrollTrace] 36 callbackMs=682.505 frameMs=696.870 dtMs=16.683 target=515.000 before=505.500 calculated=506.494 after=506.500 workMs=0.310
+[ScrollTrace] 37 callbackMs=699.496 frameMs=713.553 dtMs=16.683 target=515.000 before=506.500 calculated=507.389 after=507.500 workMs=0.246
+[ScrollTrace] 38 callbackMs=743.418 frameMs=730.236 dtMs=16.683 target=982.500 before=507.500 calculated=518.351 after=518.500 workMs=0.077
+[ScrollTrace] 39 callbackMs=764.103 frameMs=780.284 dtMs=50.049 target=982.500 before=518.500 calculated=611.049 after=611.000 workMs=0.074
+[ScrollTrace] 40 callbackMs=780.775 frameMs=796.967 dtMs=16.683 target=982.500 before=611.000 calculated=649.855 after=650.000 workMs=0.208
+[ScrollTrace] 41 callbackMs=797.456 frameMs=813.650 dtMs=16.683 target=982.500 before=650.000 calculated=684.776 after=685.000 workMs=0.221
+[ScrollTrace] 42 callbackMs=814.139 frameMs=830.333 dtMs=16.683 target=982.500 before=685.000 calculated=716.115 after=716.000 workMs=0.075
+[ScrollTrace] 43 callbackMs=830.827 frameMs=847.016 dtMs=16.683 target=982.500 before=716.000 calculated=743.873 after=744.000 workMs=0.078
+[ScrollTrace] 44 callbackMs=880.854 frameMs=886.320 dtMs=39.304 target=982.500 before=744.000 calculated=798.653 after=798.500 workMs=0.095
+[ScrollTrace] 45 callbackMs=900.507 frameMs=913.748 dtMs=27.428 target=982.500 before=798.500 calculated=829.060 after=829.000 workMs=0.055
+[ScrollTrace] 46 callbackMs=914.232 frameMs=930.431 dtMs=16.683 target=982.500 before=829.000 calculated=845.054 after=845.000 workMs=0.040
+[ScrollTrace] 47 callbackMs=930.918 frameMs=947.114 dtMs=16.683 target=982.500 before=845.000 calculated=859.381 after=859.500 workMs=0.031
+[ScrollTrace] 48 callbackMs=947.595 frameMs=963.796 dtMs=16.683 target=982.500 before=859.500 calculated=872.364 after=872.500 workMs=0.030
+[ScrollTrace] 49 callbackMs=964.281 frameMs=980.479 dtMs=16.683 target=982.500 before=872.500 calculated=884.005 after=884.000 workMs=0.032
+[ScrollTrace] 50 callbackMs=980.964 frameMs=997.162 dtMs=16.683 target=982.500 before=884.000 calculated=894.302 after=894.500 workMs=0.036
+[ScrollTrace] 51 callbackMs=997.676 frameMs=1013.845 dtMs=16.683 target=982.500 before=894.500 calculated=903.704 after=903.500 workMs=0.066
+[ScrollTrace] 52 callbackMs=1014.363 frameMs=1030.528 dtMs=16.683 target=982.500 before=903.500 calculated=911.763 after=912.000 workMs=0.066
+[ScrollTrace] end

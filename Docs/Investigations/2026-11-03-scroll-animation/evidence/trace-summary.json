@@ -1,0 +1,25 @@
+{
+  "hitches": 86,
+  "hitch_duration_ms": 1434.744,
+  "max_scroll_step_ms": 1.182,
+  "windows": [
+    {
+      "start_seconds": 10,
+      "end_seconds": 25,
+      "hitches": 32,
+      "cell_prepare_intervals": 85,
+      "image_decode_intervals": 11,
+      "main_thread_samples": 3074,
+      "shelf_configure_samples": 225
+    },
+    {
+      "start_seconds": 36,
+      "end_seconds": 51,
+      "hitches": 21,
+      "cell_prepare_intervals": 0,
+      "image_decode_intervals": 0,
+      "main_thread_samples": 3026,
+      "shelf_configure_samples": 0
+    }
+  ]
+}
