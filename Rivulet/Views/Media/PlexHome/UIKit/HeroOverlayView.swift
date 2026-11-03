@@ -2,7 +2,7 @@
 // Copyright (C) 2025-2026 Bain Gurley
 
 // Home hero overlay: HeroSlideView, HeroButtonRowView and paging dots. Paging is the Apple TV app's:
-// new metadata fades in over the last 0.42 s of a 1 s slide, auto-advancing every 5 s while focused
+// new metadata fades in during the slide, auto-advancing every 5 s while focused
 // or at the top. The backdrop is a sibling `HeroBackdropView`, driven by `onIndexChanged`.
 
 import UIKit
@@ -30,7 +30,7 @@ final class HeroOverlayView: UIView {
     private var displayedIndex: Int = 0
     private var displayedSwapWorkItem: DispatchWorkItem?
 
-    var onIndexChanged: ((Int, PlexMetadata) -> Void)?
+    var onIndexChanged: ((Int, PlexMetadata, HeroPageDirection) -> Void)?
     var onInfo: ((PlexMetadata) -> Void)?
     var onPlay: ((PlexMetadata) -> Void)?
     var onFocusEntered: (() -> Void)?
@@ -121,6 +121,7 @@ final class HeroOverlayView: UIView {
         // Clamp index against new items.
         self.currentIndex = max(0, min(initialIndex, max(0, items.count - 1)))
         self.displayedIndex = currentIndex
+        buttonRow.setPagingVisible(true, animated: false)
         // Back from the MediaItem path (Home after Jellyfin signs out): this
         // same cell was showing the MediaItem overlay over hidden Plex views.
         let switchingRows = buttonRow.isHidden
@@ -268,7 +269,7 @@ final class HeroOverlayView: UIView {
         pagingDotsBackground.isHidden = items.count <= 1
         // Dots track the PRESS index (currentIndex), not the lagged metadata
         // (displayedIndex), so they advance with the backdrop image on the
-        // click rather than 600ms later when the metadata swaps in.
+        // click rather than waiting for the metadata swap.
         pagingDots.update(count: items.count, activeIndex: currentIndex)
     }
 
@@ -280,14 +281,14 @@ final class HeroOverlayView: UIView {
         setCurrentIndex(next)
     }
 
-    private func setCurrentIndex(_ newIndex: Int) {
+    private func setCurrentIndex(_ newIndex: Int, direction: HeroPageDirection = .forward) {
         guard newIndex != currentIndex else { return }
         currentIndex = newIndex
         // Pass the actual item (not just the index) so the controller drives the
         // backdrop off the SAME array the slide uses. The controller's heroItems
         // can be reordered (TMDB hero upgrade) after this view was configured, so
         // an index alone would point at a different item -> metadata/image drift.
-        if let item = currentItem { onIndexChanged?(newIndex, item) }
+        if let item = currentItem { onIndexChanged?(newIndex, item, direction) }
         updateButtonStateForCurrentItem()
         // Advance the dots NOW, on the press (with the backdrop image), not in
         // the delayed metadata swap below.
@@ -296,22 +297,24 @@ final class HeroOverlayView: UIView {
         updateAutoAdvanceTimer()
 
         // The old metadata leaves with its page.
-        HeroPageMotion.slideOut(slideView, in: self)
+        HeroPageMotion.slideOut(slideView, in: self, direction: direction)
+        buttonRow.setPagingVisible(false)
 
-        // The new metadata fades in over the slide's last 0.42 s. renderSlide is
+        // The new metadata fades in during the slide. renderSlide is
         // animated:false here (the old is already gone); we hold alpha at 0 and
         // drive the fade-in ourselves.
         displayedSwapWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.displayedIndex = newIndex
+            self.buttonRow.setPagingVisible(true)
             // Hold the slide hidden, set the new content + load its logo, and
             // fade in only once the logo is resolved (loaded or absent), so the
             // final logo/text shows from the first frame -- no fallback-text
             // flash that then jumps to the logo mid-fade.
             self.slideView.alpha = 0
             self.renderSlide(animated: false, manageAlpha: false) { [weak self] in
-                guard let self else { return }
+                guard let self, self.currentIndex == newIndex else { return }
                 UIView.animate(withDuration: HeroPageMotion.metadataFade, delay: 0, options: [.curveEaseOut]) {
                     self.slideView.alpha = 1
                 }
@@ -334,10 +337,15 @@ final class HeroOverlayView: UIView {
             self.onInfo?(item)
         }
         buttonRow.onNext = { [weak self] in self?.advance() }
+        buttonRow.onPrevious = { [weak self] in
+            guard let self, self.currentIndex > 0 else { return }
+            self.setCurrentIndex(self.currentIndex - 1, direction: .backward)
+        }
     }
 
     private func updateButtonStateForCurrentItem() {
         buttonRow.canAdvance = items.count > 1
+        buttonRow.canRetreat = currentIndex > 0
         if let item = currentItem {
             let tmdb = resolvedTmdbId(for: item)
             let onList = tmdb.map { PlexWatchlistService.shared.contains(tmdbId: $0) } ?? false
@@ -448,7 +456,7 @@ final class HeroOverlayView: UIView {
     func configure(
         mediaItems: [MediaItem],
         initialIndex: Int,
-        onIndexChanged: @escaping (Int, MediaItem) -> Void,
+        onIndexChanged: @escaping (Int, MediaItem, HeroPageDirection) -> Void,
         onPlay: @escaping (MediaItem) -> Void,
         onInfo: @escaping (MediaItem) -> Void,
         onToggleWatchlist: ((MediaItem) -> Void)? = nil,
@@ -514,7 +522,7 @@ final class MediaItemHeroOverlayView: UIView {
 
     // MARK: - Callbacks
 
-    var onIndexChanged: ((Int, MediaItem) -> Void)?
+    var onIndexChanged: ((Int, MediaItem, HeroPageDirection) -> Void)?
     var onPlay: ((MediaItem) -> Void)?
     var onInfo: ((MediaItem) -> Void)?
     /// nil hides the watchlist circle: only Discover has a watchlist to
@@ -590,7 +598,7 @@ final class MediaItemHeroOverlayView: UIView {
     func configure(
         items: [MediaItem],
         initialIndex: Int,
-        onIndexChanged: @escaping (Int, MediaItem) -> Void,
+        onIndexChanged: @escaping (Int, MediaItem, HeroPageDirection) -> Void,
         onPlay: @escaping (MediaItem) -> Void,
         onInfo: @escaping (MediaItem) -> Void
     ) {
@@ -600,6 +608,7 @@ final class MediaItemHeroOverlayView: UIView {
         self.onInfo = onInfo
         self.currentIndex = max(0, min(initialIndex, max(0, items.count - 1)))
         self.displayedIndex = currentIndex
+        buttonRow.setPagingVisible(true, animated: false)
         // First render holds the slide hidden until the logo resolves, so
         // the cold-load hero doesn't show text-then-logo.
         slideView.alpha = 0
@@ -612,6 +621,7 @@ final class MediaItemHeroOverlayView: UIView {
         renderPagingDots()
         prefetchNextBackdrop()
         buttonRow.canAdvance = items.count > 1
+        buttonRow.canRetreat = currentIndex > 0
     }
 
     // MARK: - Focus
@@ -694,28 +704,31 @@ final class MediaItemHeroOverlayView: UIView {
 
     // MARK: - Paging
 
-    private func setCurrentIndex(_ newIndex: Int) {
+    private func setCurrentIndex(_ newIndex: Int, direction: HeroPageDirection = .forward) {
         guard newIndex != currentIndex else { return }
         currentIndex = newIndex
-        if let item = currentItem { onIndexChanged?(newIndex, item) }
+        if let item = currentItem { onIndexChanged?(newIndex, item, direction) }
         buttonRow.canAdvance = items.count > 1
+        buttonRow.canRetreat = currentIndex > 0
         // Advance the dots NOW, on the press, with the backdrop image.
         renderPagingDots()
         prefetchNextBackdrop()
         onPaged?()
 
-        HeroPageMotion.slideOut(slideView, in: self)
+        HeroPageMotion.slideOut(slideView, in: self, direction: direction)
+        buttonRow.setPagingVisible(false)
 
         displayedSwapWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.displayedIndex = newIndex
+            self.buttonRow.setPagingVisible(true)
             // Hold the slide hidden and fade in only once the logo is
             // resolved (loaded or absent) — same beat as the PlexMetadata
             // hero, so metadata never pops in ahead of its logo.
             self.slideView.alpha = 0
             self.renderSlide { [weak self] in
-                guard let self else { return }
+                guard let self, self.currentIndex == newIndex else { return }
                 UIView.animate(withDuration: HeroPageMotion.metadataFade, delay: 0, options: [.curveEaseOut]) {
                     self.slideView.alpha = 1
                 }
@@ -750,6 +763,10 @@ final class MediaItemHeroOverlayView: UIView {
             self.onInfo?(item)
         }
         buttonRow.onNext = { [weak self] in self?.advance() }
+        buttonRow.onPrevious = { [weak self] in
+            guard let self, self.currentIndex > 0 else { return }
+            self.setCurrentIndex(self.currentIndex - 1, direction: .backward)
+        }
         buttonRow.onWatchlist = { [weak self] in
             guard let self, let item = self.currentItem else { return }
             self.onToggleWatchlist?(item)
@@ -763,18 +780,23 @@ final class MediaItemHeroOverlayView: UIView {
 /// The Apple TV app's hero page change (VideosUI, tvOS 26.5).
 @MainActor
 enum HeroPageMotion {
-    /// The new metadata fades in over the last 0.42 s of the 1 s slide.
-    static let metadataFade: TimeInterval = 0.42
-    static let metadataDelay: TimeInterval = 1.0 - metadataFade
+    static let metadataFade: TimeInterval = 0.55
+    static let metadataDelay: TimeInterval = 0.4
 
-    /// Slides a snapshot of `view` off the leading edge with the backdrop's
-    /// page spring, and hides the live view for the swap.
-    static func slideOut(_ view: UIView, in container: UIView) {
+    /// Forward paging slides the metadata out; backward paging fades it in place
+    /// so the old title never travels across the incoming artwork.
+    static func slideOut(_ view: UIView, in container: UIView, direction: HeroPageDirection) {
         defer { view.alpha = 0 }
         guard view.alpha > 0, let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
         snapshot.frame = view.frame
         snapshot.isUserInteractionEnabled = false
         container.insertSubview(snapshot, aboveSubview: view)
+        if direction == .backward {
+            UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseOut]) {
+                snapshot.alpha = 0
+            } completion: { _ in snapshot.removeFromSuperview() }
+            return
+        }
         let animator = HeroBackdropView.pageAnimator()
         animator.addAnimations {
             snapshot.transform = CGAffineTransform(translationX: -container.bounds.width, y: 0)
