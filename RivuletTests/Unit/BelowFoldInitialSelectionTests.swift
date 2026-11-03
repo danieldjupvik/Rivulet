@@ -25,7 +25,7 @@ struct BelowFoldInitialSelectionTests {
 
         let content = await BelowFoldContentLoader().load(for: item("show", .show), detail: nil)
 
-        #expect(content.initialEpisode?.ref.itemID == "s1e1")
+        #expect(content.initialEpisode?.ref.itemID == "s1e2")
         #expect(content.selectedSeason?.ref.itemID == "s1")
     }
 
@@ -112,7 +112,7 @@ struct BelowFoldInitialSelectionTests {
             parentRef: parent.map { MediaItemRef(providerID: providerID, itemID: $0) },
             grandparentRef: kind == .episode ? MediaItemRef(providerID: providerID, itemID: "show") : nil,
             episodeNumber: episode, seasonNumber: season, childProgress: nil,
-            userState: MediaUserState(isPlayed: season == 1, viewOffset: 0, isFavorite: false, lastViewedAt: nil),
+            userState: MediaUserState(isPlayed: season == 1 && episode != 2, viewOffset: 0, isFavorite: false, lastViewedAt: nil),
             artwork: MediaArtwork(poster: nil, backdrop: nil, thumbnail: nil, logo: nil),
             parentArtwork: nil, grandparentArtwork: nil)
     }
