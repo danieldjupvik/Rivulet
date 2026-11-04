@@ -125,7 +125,8 @@ final class EpisodeCell: UIView {
     private let summaryLabel = UILabel()
     private let footerRow = UIStackView()
     private let dateLabel = UILabel()
-    private let ratingBadge = PaddingLabel()
+    private let ratingBadge = MetadataBadgeView(
+        relativeTo: .systemFont(ofSize: 21, weight: .medium), color: .white.withAlphaComponent(0.78))
 
     private var imageToken: UInt64 = 0
 
@@ -278,14 +279,6 @@ final class EpisodeCell: UIView {
         dateLabel.textColor = UIColor.white.withAlphaComponent(0.78)
         footerRow.addArrangedSubview(dateLabel)
 
-        ratingBadge.font = .systemFont(ofSize: 12, weight: .bold)
-        ratingBadge.textColor = UIColor.white.withAlphaComponent(0.86)
-        ratingBadge.insets = UIEdgeInsets(top: 1, left: 5, bottom: 1, right: 5)
-        ratingBadge.layer.cornerRadius = 3
-        ratingBadge.layer.cornerCurve = .continuous
-        ratingBadge.layer.borderWidth = 1
-        ratingBadge.layer.borderColor = UIColor.white.withAlphaComponent(0.55).cgColor
-        ratingBadge.clipsToBounds = true
         footerRow.addArrangedSubview(ratingBadge)
 
         progressFillWidth = progressFill.widthAnchor.constraint(equalToConstant: 0)
