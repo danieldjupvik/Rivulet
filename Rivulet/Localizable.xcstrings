@@ -6361,6 +6361,16 @@
         }
       }
     },
+    "Plays trailers and your server's pre-roll video before a movie you start from the beginning, on Plex. Your server's Cinema Trailers settings choose what plays. Press Skip to move on." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spielt auf Plex Trailer und das Pre-Roll-Video deines Servers ab, bevor ein Film von Anfang an startet. Was läuft, legen die Cinema-Trailers-Einstellungen deines Servers fest. Mit „Überspringen“ geht es weiter."
+          }
+        }
+      }
+    },
     "Please sign in to Rivulet first" : {
       "localizations" : {
         "de" : {
@@ -7677,6 +7687,16 @@
         }
       }
     },
+    "Scan with your phone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit dem Smartphone scannen"
+          }
+        }
+      }
+    },
     "Scene" : {
       "localizations" : {
         "de" : {
@@ -8177,12 +8197,12 @@
         }
       }
     },
-    "Shows the profile picker each time Rivulet launches, allowing you to choose which profile to use." : {
+    "Shows the profile picker each time Rivulet opens, and when you come back to it after more than 30 seconds on the Home screen, in another app or on the screensaver, allowing you to choose which profile to use." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zeigt bei jedem Start von Rivulet die Profilauswahl, damit du wählen kannst, welches Profil du verwendest."
+            "state" : "needs_review",
+            "value" : "Zeigt die Profilauswahl bei jedem Öffnen von Rivulet und wenn du nach mehr als 30 Sekunden auf dem Home-Bildschirm, in einer anderen App oder im Bildschirmschoner zurückkehrst, damit du wählen kannst, welches Profil du verwendest."
           }
         }
       }
@@ -8463,6 +8483,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rückblick überspringen"
+          }
+        }
+      }
+    },
+    "Skip Trailer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trailer überspringen"
           }
         }
       }
@@ -9809,6 +9839,16 @@
         }
       }
     },
+    "Trailers Before Movies" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trailer vor Filmen"
+          }
+        }
+      }
+    },
     "Transcode" : {
       "localizations" : {
         "de" : {
@@ -10305,16 +10345,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gewalt & Blut"
-          }
-        }
-      }
-    },
-    "Visit" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffne"
           }
         }
       }
@@ -11090,6 +11120,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stunden Musik"
+          }
+        }
+      }
+    },
+    "or visit" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "oder öffne"
           }
         }
       }
