@@ -415,16 +415,9 @@ enum InfoPopupContent {
             row.addArrangedSubview(label(parts.joined(separator: "  ·  "), size: metadataFont.pointSize,
                                         weight: .semibold, color: metadataColor, lines: 1))
         }
-        let source = detail.primarySource
-        var badges = source?.qualityBadges() ?? []
-        if source?.subtitleTracks.contains(where: { $0.isHearingImpaired }) ?? false { badges.append("SDH") }
-        if source?.audioTracks.contains(where: { ($0.title ?? $0.extendedTitle ?? "").localizedCaseInsensitiveContains("descri") }) ?? false { badges.append("AD") }
-        for raw in badges {
-            let text = raw.replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-            if !text.isEmpty {
-                row.addArrangedSubview(MetadataBadgeView(text, relativeTo: metadataFont,
-                                                        color: metadataColor, filled: text == "4K"))
-            }
+        for text in detail.primarySource?.detailBadges() ?? [] {
+            row.addArrangedSubview(MetadataBadgeView(text, relativeTo: metadataFont,
+                                                    color: metadataColor, filled: text == "4K"))
         }
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
