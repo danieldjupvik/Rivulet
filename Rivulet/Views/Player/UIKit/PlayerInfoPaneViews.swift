@@ -155,7 +155,7 @@ final class PlayerInfoCardView: UIView {
             posterTask = Task { [weak self] in
                 let image = await ImageCacheManager.shared.image(for: url)
                 guard let self, !Task.isCancelled else { return }
-                self.posterView.image = image
+                self.posterView.image = content.posterFits ? image?.legibleChannelLogo : image
             }
         }
     }
@@ -212,12 +212,6 @@ final class PlayerSummaryButton: UIControl {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func setText(_ text: String) { label.text = text }
-
-    /// Reading mode: the text may shrink to show more of itself in the same lines.
-    func setShrinksToFit(_ shrinks: Bool) {
-        label.adjustsFontSizeToFitWidth = shrinks
-        label.minimumScaleFactor = shrinks ? 0.7 : 1
-    }
 
     override var canBecomeFocused: Bool { true }
 
