@@ -41,7 +41,8 @@ final class MediaItemDetailPageViewController: UIViewController {
     private let heroContent = UIView()
     private let belowFold = UIView()
     private let belowFoldTitle = UILabel()
-    private let infoColumns = InfoColumnsView()
+    private let infoColumns = InfoColumnsView(style: .footer)
+    private var detail: MediaItemDetail?
     private var directionalInput: DirectionalInputBinding?
     /// 0 hero, 1 below-fold from the top, 2 scrolled on to the info columns (only with extras).
     private var scrollStage = 0
@@ -59,6 +60,7 @@ final class MediaItemDetailPageViewController: UIViewController {
     private let dateLabel = UILabel()
     private let badgeRow = UIStackView()
     private var playButton: FocusableActionButton?
+    private weak var lastFocusedHeroButton: FocusableActionButton?
     /// The Play pill's own label, held so a post-playback refresh can flip
     /// Play ↔ Resume without rebuilding (and re-focusing) the action row.
     private weak var playTitleLabel: UILabel?
@@ -201,36 +203,49 @@ final class MediaItemDetailPageViewController: UIViewController {
     }
 
     private func setScrollStage(_ stage: Int) {
-        let wasHero = scrollStage == 0
         scrollStage = stage
         view.layoutIfNeeded()
         let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
         // Stage 1 aligns the below-fold's TOP with the screen top (one viewport),
         // making the light-top / dark-bottom split fill the screen.
-        let target = stage == 0 ? 0 : (stage == 1 ? min(view.bounds.height, maxY) : maxY)
+        let target: CGFloat
+        switch stage {
+        case 0: target = 0
+        case 1: target = min(view.bounds.height, maxY)
+        default: target = maxY
+        }
         // The extras row is a focus stop only once the page is scrolled to it.
         if hasExtras { extrasShelf.alpha = stage > 0 ? 1 : 0 }
+        heroContent.isUserInteractionEnabled = stage == 0
+        extrasShelf.isUserInteractionEnabled = stage == 1 && hasExtras
+        infoColumns.isUserInteractionEnabled = stage == (hasExtras ? 2 : 1)
         UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseInOut]) {
             self.scrollView.contentOffset = CGPoint(x: 0, y: target)
-        }
-        if hasExtras, wasHero != (stage == 0) {
-            setNeedsFocusUpdate()
-            updateFocusIfNeeded()
+            self.setNeedsFocusUpdate()
+            self.updateFocusIfNeeded()
         }
     }
 
     override var preferredFocusEnvironments: [UIFocusEnvironment] {
-        if scrollStage > 0, hasExtras, let card = extrasShelf.firstCard { return [card] }
+        if scrollStage == 1, hasExtras, let card = extrasShelf.firstCard { return [card] }
+        if scrollStage > 0 { return [infoColumns] }
+        if let lastFocusedHeroButton, lastFocusedHeroButton.isDescendant(of: heroContent) {
+            return [lastFocusedHeroButton]
+        }
         if let playButton { return [playButton] }
         return super.preferredFocusEnvironments
     }
 
-    /// Up and Down leave the extras row by scrolling the page, never by focusing the hero above it.
-    override func shouldUpdateFocus(in context: UIFocusUpdateContext) -> Bool {
-        if scrollStage > 0, extrasShelf.contains(context.previouslyFocusedView),
-           context.nextFocusedView?.isDescendant(of: view) == true,
-           !extrasShelf.contains(context.nextFocusedView) { return false }
-        return super.shouldUpdateFocus(in: context)
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        rememberHeroFocus(context.nextFocusedView)
+    }
+
+    func rememberHeroFocus(_ focusedView: UIView?) {
+        if let button = focusedView as? FocusableActionButton,
+           button.isDescendant(of: heroContent) {
+            lastFocusedHeroButton = button
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -337,6 +352,13 @@ final class MediaItemDetailPageViewController: UIViewController {
         belowFold.addSubview(belowFoldTitle)
 
         infoColumns.translatesAutoresizingMaskIntoConstraints = false
+        infoColumns.isUserInteractionEnabled = false
+        infoColumns.onSelect = { [weak self] in
+            guard let self, let detail = self.detail, self.presentedViewController == nil else { return }
+            self.present(InfoPopupViewController(content: InfoPopupContent.fullInfo(detail: detail),
+                                                width: InfoPopupViewController.infoWidth, height: 900,
+                                                scrollable: true), animated: true)
+        }
         belowFold.addSubview(infoColumns)
 
         // Hidden until the detail says there are extras.
@@ -534,11 +556,13 @@ final class MediaItemDetailPageViewController: UIViewController {
     }
 
     private func applyDetail(_ detail: MediaItemDetail, fallbackGenres: [String]) {
+        self.detail = detail
         // The seed can be stale on open; `detail` is a fresh read, so reuse it.
         applyWatchState(from: detail.item)
         setGenres(detail.genres.isEmpty ? fallbackGenres : detail.genres)
         infoColumns.configure(detail: detail)
         showExtras(detail)
+        if scrollStage > 0 { setScrollStage(scrollStage) }
         // Capability badges: file quality (4K/DV/Atmos/…) + SDH/AD. Strip any
         // parenthetical channel-layout noise ("5.1(side)" → "5.1").
         let source = detail.primarySource
