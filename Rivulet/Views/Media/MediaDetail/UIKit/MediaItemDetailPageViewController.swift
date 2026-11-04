@@ -42,6 +42,7 @@ final class MediaItemDetailPageViewController: UIViewController {
     private let belowFold = UIView()
     private let belowFoldTitle = UILabel()
     private let infoColumns = InfoColumnsView()
+    private var directionalInput: DirectionalInputBinding?
     /// 0 hero, 1 below-fold from the top, 2 scrolled on to the info columns (only with extras).
     private var scrollStage = 0
     private let extrasShelf = ExtrasShelfView(leading: PreviewCarouselGeometry.expandedChromeInset)
@@ -155,6 +156,14 @@ final class MediaItemDetailPageViewController: UIViewController {
         menuTap.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
         view.addGestureRecognizer(menuTap)
 
+        directionalInput = DirectionalInputBinding(
+            gatedSwipesOn: view, directions: [.up, .down],
+            shouldHandle: { [weak self] in self?.nextScrollStage(for: $0) != nil },
+            onSwipe: { [weak self] direction in
+                guard let self, let stage = self.nextScrollStage(for: direction) else { return }
+                self.setScrollStage(stage)
+            })
+
         loadBackdrop()
         loadDetail()
 
@@ -171,20 +180,24 @@ final class MediaItemDetailPageViewController: UIViewController {
     // MARK: - Down/Up page scroll
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        // A press the version picker declines bubbles here; it must not scroll the page.
-        guard presentedViewController == nil else { super.pressesBegan(presses, with: event); return }
         for press in presses {
-            switch press.type {
-            case .downArrow where scrollStage == 0:
-                setScrollStage(1); return
-            case .downArrow where scrollStage == 1 && hasExtras:
-                setScrollStage(2); return
-            case .upArrow where scrollStage > 0:
-                setScrollStage(scrollStage - 1); return
-            default: break
+            if let direction = DirectionalInputBinding.Direction.allCases.first(where: { $0.pressType == press.type }),
+               let stage = nextScrollStage(for: direction) {
+                setScrollStage(stage)
+                return
             }
         }
         super.pressesBegan(presses, with: event)
+    }
+
+    private func nextScrollStage(for direction: DirectionalInputBinding.Direction) -> Int? {
+        guard presentedViewController == nil else { return nil }
+        switch direction {
+        case .down where scrollStage == 0: return 1
+        case .down where scrollStage == 1 && hasExtras: return 2
+        case .up where scrollStage > 0: return scrollStage - 1
+        default: return nil
+        }
     }
 
     private func setScrollStage(_ stage: Int) {
