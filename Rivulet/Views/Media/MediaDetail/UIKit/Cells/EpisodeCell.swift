@@ -107,6 +107,7 @@ final class EpisodeCell: UIView {
     private let thumbnailImageView = UIImageView()
 
     private var thumbHeightConstraint: NSLayoutConstraint!
+    private let episodeScrim = ArtworkScrimView()
     private let trailerScrim = TrailerScrimView()
     private let trailerTitleLabel = UILabel()
 
@@ -183,6 +184,9 @@ final class EpisodeCell: UIView {
         thumbnailImageView.overlayContentView.directionalLayoutMargins =
             NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         thumbnailCard.contentView.addSubview(thumbnailImageView)
+
+        episodeScrim.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailImageView.overlayContentView.addSubview(episodeScrim)
 
         // A trailer's title rides inside the artwork, over a scrim.
         trailerScrim.translatesAutoresizingMaskIntoConstraints = false
@@ -338,6 +342,11 @@ final class EpisodeCell: UIView {
             thumbnailCard.topAnchor.constraint(equalTo: topAnchor),
             thumbnailCard.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -reserve),
             thumbHeightConstraint,
+
+            episodeScrim.topAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.topAnchor),
+            episodeScrim.leadingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.leadingAnchor),
+            episodeScrim.trailingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.trailingAnchor),
+            episodeScrim.bottomAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.bottomAnchor),
 
             trailerScrim.leadingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.leadingAnchor),
             trailerScrim.trailingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.trailingAnchor),
@@ -514,12 +523,23 @@ final class EpisodeCell: UIView {
     private func setThumbnailImage(_ image: UIImage?) {
         thumbnailImageView.image = image
         thumbnailCard.contentView.backgroundColor = image == nil ? UIColor(white: 0.15, alpha: 1) : .clear
+        guard !episodeScrim.isHidden else { return }
+        let cachedColor = image.flatMap { ArtworkScrimPalette.cachedColor(for: $0) }
+        episodeScrim.configure(color: cachedColor)
+        guard let image, cachedColor == nil else { return }
+        let token = imageToken
+        Task { [weak self] in
+            let color = await ArtworkScrimPalette.color(for: image)
+            guard let self, self.imageToken == token else { return }
+            self.episodeScrim.configure(color: color)
+        }
     }
 
     /// A trailer is a taller thumb with its title inside and no description block below.
     private func setTrailerLayout(_ trailer: Bool) {
         let height = trailer ? Self.trailerThumbHeight : Self.thumbHeight
         thumbHeightConstraint.constant = height
+        episodeScrim.isHidden = trailer
         trailerScrim.isHidden = !trailer
         trailerTitleLabel.isHidden = !trailer
         descriptionBlock.isHidden = trailer
