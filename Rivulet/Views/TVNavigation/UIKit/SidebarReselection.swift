@@ -3,10 +3,14 @@
 
 import UIKit
 
+/// A page that returns to its top when its sidebar tab is selected again.
 @MainActor
 protocol SidebarTabReselecting: AnyObject {
     func reselectSidebarTab()
 }
+
+/// A view that takes Up itself at the top of its page, so the shell's top-edge guide stays out of it.
+protocol KeepsUpAtTop {}
 
 @MainActor
 enum SidebarReselection {

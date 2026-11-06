@@ -19,6 +19,7 @@ final class SeasonDetailViewController: UIViewController, UICollectionViewDelega
     private var provider: MediaProvider? { MediaProviderRegistry.shared.provider(for: season.ref.providerID) }
 
     private let background = UIImageView()
+    private let themeVideo = ThemeVideoBackdropView()
     private let poster = UIImageView()
     private var collectionView: FocusScrollControlledCollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
@@ -79,11 +80,12 @@ final class SeasonDetailViewController: UIViewController, UICollectionViewDelega
         background.contentMode = .scaleAspectFill
         background.clipsToBounds = true
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
-        for layer in [background, blur] as [UIView] {
+        for layer in [background, themeVideo, blur] as [UIView] {
             layer.frame = view.bounds
             layer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             view.addSubview(layer)
         }
+        themeVideo.configure(item: season.ref, host: self)
 
         poster.translatesAutoresizingMaskIntoConstraints = false
         poster.contentMode = .scaleAspectFill
@@ -125,6 +127,16 @@ final class SeasonDetailViewController: UIViewController, UICollectionViewDelega
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.load() }
             .store(in: &refreshObservers)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        themeVideo.setActive(true)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        themeVideo.setActive(false)
     }
 
     override var preferredFocusEnvironments: [UIFocusEnvironment] {
@@ -317,7 +329,8 @@ final class SeasonDetailViewController: UIViewController, UICollectionViewDelega
                 self.seasonDetail = detail; self.season = detail.item
                 let split = BelowFoldContentLoader.extraTiles(
                     from: detail.extras,
-                    fallbackArt: detail.item.artwork.backdrop ?? detail.item.parentArtwork?.backdrop ?? detail.item.artwork.thumbnail)
+                    fallbackArt: detail.item.artwork.backdrop ?? detail.item.parentArtwork?.backdrop ?? detail.item.artwork.thumbnail,
+                    youTubeVideoID: detail.youTubeTrailerID, providerID: detail.item.ref.providerID)
                 self.extrasShelf.configure(split.trailers + split.extras)
             }
             self.episodes = EpisodePicker.inPlaybackOrder(children)
@@ -520,23 +533,30 @@ enum EpisodeMenu {
                         moreInfo: @escaping () -> Void) {
         guard host.presentedViewController == nil,
               let provider = MediaProviderRegistry.shared.provider(for: episode.ref.providerID) else { return }
-        let sections = PlexHomeViewController.providerTileMenuSections(
-            for: episode, provider: provider, isContinueWatching: false,
-            onWatchFromBeginning: { play(nil, true) },
-            onMoreInfo: moreInfo,
-            onPlayVersion: { [weak host] in
-                Task { @MainActor in
-                    guard let host, let detail = try? await provider.fullDetail(for: episode.ref) else { return }
-                    VersionPicker.present(VersionPicker.versions(in: detail), from: host, sourceFrame: sourceFrame) {
-                        play($0, false)
+        Task { @MainActor [weak host] in
+            let refresh = await provider.canRefreshMetadata()
+            guard let host, host.presentedViewController == nil else { return }
+            var sections = PlexHomeViewController.providerTileMenuSections(
+                for: episode, provider: provider, isContinueWatching: false, canRefreshMetadata: refresh,
+                onWatchFromBeginning: { play(nil, true) },
+                onMoreInfo: moreInfo,
+                onPlayVersion: { [weak host] in
+                    Task { @MainActor in
+                        guard let host, let detail = try? await provider.fullDetail(for: episode.ref) else { return }
+                        VersionPicker.present(VersionPicker.versions(in: detail), from: host, sourceFrame: sourceFrame) {
+                            play($0, false)
+                        }
                     }
-                }
-            },
-            onAddToPlaylist: { [weak host] in
-                guard let host else { return }
-                PlaylistMenus.presentAddToPlaylist(for: episode, from: host, sourceFrame: sourceFrame)
-            })
-        // animated: false; the popup runs its own entrance from the thumb.
-        host.present(TileMenuPopupViewController(sections: sections, sourceFrame: sourceFrame), animated: false)
+                },
+                onAddToPlaylist: { [weak host] in
+                    guard let host else { return }
+                    PlaylistMenus.presentAddToPlaylist(for: episode, from: host, sourceFrame: sourceFrame)
+                })
+            sections = await PlexHomeViewController.addingServerEntries(to: sections, for: episode,
+                                                                        provider: provider, from: host)
+            guard host.presentedViewController == nil else { return }
+            // animated: false; the popup runs its own entrance from the thumb.
+            host.present(TileMenuPopupViewController(sections: sections, sourceFrame: sourceFrame), animated: false)
+        }
     }
 }

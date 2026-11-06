@@ -23,6 +23,20 @@ struct ShellSidebarItem: Hashable {
     var badge: String?
     /// The row's `SidebarArrangement` key; nil for the fixed rows.
     var arrangeKey: String?
+    /// The Now Playing pill's track; set only on the `.nowPlaying` item.
+    var nowPlaying: SidebarNowPlaying?
+}
+
+/// The track the profile slot's pill names. Server text, never localized.
+struct SidebarNowPlaying: Hashable {
+    var title: String
+    var artist: String?
+    var isPlaying: Bool
+
+    /// "title · artist", or the title alone.
+    var line: String {
+        [title, artist].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
 }
 
 /// A server whose sidebar gets a Playlists row.
@@ -35,15 +49,16 @@ struct PlaylistServer: Hashable {
     /// The servers among `providerIDs`, the selected Plex server first.
     @MainActor static func current(_ providerIDs: Set<String>) -> [PlaylistServer] {
         let plexID = MediaProviderRegistry.shared.plexProvider?.id
+        let labels = SidebarLibrary.serverLabels()
         var servers: [PlaylistServer] = []
         if let plexID, providerIDs.contains(plexID) {
-            servers.append(PlaylistServer(providerID: plexID,
-                                          name: PlexAuthManager.shared.savedServerName ?? String(localized: "Library"), serverID: ""))
+            servers.append(PlaylistServer(providerID: plexID, name: labels.plex, serverID: ""))
         }
         for source in ServerDataStore.shared.sources
         where source.providerID != plexID && providerIDs.contains(source.providerID)
             && !servers.contains(where: { $0.providerID == source.providerID }) {
-            servers.append(PlaylistServer(providerID: source.providerID, name: source.name, serverID: source.providerID))
+            servers.append(PlaylistServer(providerID: source.providerID,
+                                          name: labels.others[source.providerID] ?? source.name, serverID: source.providerID))
         }
         return servers
     }
@@ -69,11 +84,19 @@ struct SidebarLibrary: Hashable {
         item = ShellSidebarItem(tab: .providerLibrary(providerID: library.providerID, libraryID: library.id),
                                 title: library.title, icon: ShellSidebarModel.icon(forLibraryKind: library.kind))
     }
+    /// Each server's name as the sidebar shows it: two servers with one name also say their type.
+    @MainActor static func serverLabels() -> (plex: String, others: [String: String]) {
+        let sources = ServerDataStore.shared.sources
+        let runs = [(name: PlexAuthManager.shared.savedServerName ?? String(localized: "Library"), kind: MediaProviderKind.plex)]
+            + sources.map { (name: $0.name, kind: MediaProviderRegistry.shared.kind(of: $0.providerID) ?? .plex) }
+        let headers = SettingsContent.serverRunHeaders(runs)
+        return (headers[0], Dictionary(zip(sources.map(\.providerID), headers.dropFirst()), uniquingKeysWith: { first, _ in first }))
+    }
+
     /// Every server's visible libraries (or all of them) in the user's order across servers.
     @MainActor static func current(includeHidden: Bool = false) -> [SidebarLibrary] {
-        let plexName = PlexAuthManager.shared.savedServerName ?? String(localized: "Library")
+        let (plexName, names) = serverLabels()
         let store = ServerDataStore.shared
-        let names = Dictionary(store.sources.map { ($0.providerID, $0.name) }, uniquingKeysWith: { first, _ in first })
         let plex = includeHidden
             ? LibrarySettingsManager.shared.sortLibraries(PlexDataStore.shared.libraries.filter(\.hasBrowseSurface))
             : PlexDataStore.shared.visibleSidebarLibraries
@@ -96,6 +119,19 @@ struct ShellSidebarSection: Hashable {
 /// user's order, Settings always last) stay unit-testable.
 enum ShellSidebarModel {
 
+    /// The name on the profile row (`AccountName`), "Account" when nobody is signed in.
+    static func profileName(plexProfile: String?, plexUser: String?, otherServerUsers: [String?]) -> String {
+        AccountName.resolve(plexProfile: plexProfile, plexUser: plexUser, otherServerUsers: otherServerUsers)
+            ?? String(localized: "Account")
+    }
+
+    /// The live value of `profileName(plexProfile:plexUser:otherServerUsers:)`.
+    @MainActor static var currentProfileName: String {
+        profileName(plexProfile: PlexUserProfileManager.shared.selectedUser?.displayName,
+                    plexUser: PlexAuthManager.shared.username,
+                    otherServerUsers: AccountName.otherServerUsers)
+    }
+
     /// The order for a profile with none stored: today's default layout.
     static let defaultOrder = SidebarArrangement.seed(libraryOrder: [], discoverAbove: true, liveTVAbove: false)
 
@@ -106,22 +142,30 @@ enum ShellSidebarModel {
         combineLiveTV: Bool,
         showDiscover: Bool,
         showWatchlist: Bool,
+        showFavorites: Bool = false,
         order: [String] = defaultOrder,
         hiddenKeys: Set<String> = [],
         profileName: String,
         profileAvatar: URL? = nil,
         canSwitchProfile: Bool = false,
         hasMediaServer: Bool = true,
-        playlistServers: [PlaylistServer] = []
+        playlistServers: [PlaylistServer] = [],
+        nowPlaying: SidebarNowPlaying? = nil
     ) -> [ShellSidebarSection] {
         var sections: [ShellSidebarSection] = []
 
-        // The profile is a header in a section of its own, above the tabs.
-        sections.append(ShellSidebarSection(title: nil, items: [
+        // The profile is a header in a section of its own, above the tabs. While
+        // music plays its slot also holds the Now Playing pill, beside the avatar.
+        var header = [
             ShellSidebarItem(tab: .account, title: firstName(of: profileName),
                              icon: "person.crop.circle.fill", avatarURL: profileAvatar,
                              canSwitchProfile: canSwitchProfile),
-        ]))
+        ]
+        if let nowPlaying {
+            header.append(ShellSidebarItem(tab: .nowPlaying, title: nowPlaying.line, icon: "music.note",
+                                           nowPlaying: nowPlaying))
+        }
+        sections.append(ShellSidebarSection(title: nil, items: header))
 
         // Search, Discover and the watchlist need a media server. Without one,
         // Home is only the welcome screen, kept while there is no Live TV instead.
@@ -136,14 +180,16 @@ enum ShellSidebarModel {
         let rows = arrangeableRows(libraries: libraries, liveTVSources: liveTVSources, combineLiveTV: combineLiveTV,
                                    showDiscover: showDiscover && hasMediaServer,
                                    showWatchlist: showWatchlist && hasMediaServer,
+                                   showFavorites: showFavorites && hasMediaServer,
                                    hiddenKeys: hiddenKeys, playlistServers: playlistServers)
         let byKey = Dictionary(rows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
         let (arranged, grouped) = SidebarArrangement.sections(
             SidebarArrangement.arrange(rows.map(\.key), order: order))
         var middle = arranged
-        // Discover and the watchlist leading the list join Search and Home, as before.
+        // Discover, the watchlist and Favorites leading the list join Search and Home, as before.
         if let first = middle.first, first.server == nil {
-            let lead = first.keys.prefix { $0 == SidebarArrangement.discover || $0 == SidebarArrangement.watchlist }
+            let leading: Set = [SidebarArrangement.discover, SidebarArrangement.watchlist, SidebarArrangement.favorites]
+            let lead = first.keys.prefix { leading.contains($0) }
             top += lead.compactMap { key in
                 byKey[key].map { row in var item = row.item; item.arrangeKey = key; return item }
             }
@@ -178,7 +224,7 @@ enum ShellSidebarModel {
         let serverName: String?
     }
 
-    /// Every arrangeable row shown, before ordering: Discover, the watchlist, the
+    /// Every arrangeable row shown, before ordering: Discover, the watchlist, Favorites, the
     /// libraries in order, each server's Playlists row, and Live TV. Settings >
     /// Sidebar passes everything, hidden rows included.
     static func arrangeableRows(
@@ -187,6 +233,7 @@ enum ShellSidebarModel {
         combineLiveTV: Bool,
         showDiscover: Bool,
         showWatchlist: Bool,
+        showFavorites: Bool = false,
         hiddenKeys: Set<String> = [],
         playlistServers: [PlaylistServer] = []
     ) -> [Row] {
@@ -199,6 +246,11 @@ enum ShellSidebarModel {
         if showWatchlist {
             rows.append(Row(key: SidebarArrangement.watchlist,
                             item: ShellSidebarItem(tab: .watchlist, title: String(localized: "Watchlist"), icon: "bookmark.fill"), serverName: nil))
+        }
+        // Favorites gather every server's, so no server either.
+        if showFavorites {
+            rows.append(Row(key: SidebarArrangement.favorites,
+                            item: ShellSidebarItem(tab: .favorites, title: String(localized: "Favorites"), icon: "heart.fill"), serverName: nil))
         }
         rows += libraries.map { Row(key: $0.key, item: $0.item, serverName: $0.serverName) }
         for server in playlistServers {

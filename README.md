@@ -6,7 +6,7 @@
 
 **Built for simplicity.**
 
-A native Apple TV app for Plex, Jellyfin, and Live TV.
+A native Apple TV app for Plex, Jellyfin, Emby, and Live TV.
 
 <a href="https://apps.apple.com/us/app/rivulet-for-plex/id6756892857">
   <img src="https://img.shields.io/badge/Download_on_the-App_Store-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download on the App Store">
@@ -56,7 +56,7 @@ I began this project in Decemeber 2025. At the time there was quite a lack of Pl
 
 ## Live TV
 
-Rivulet works with several kinds of Live TV source. You don't need a Plex or Jellyfin server. Add just a Live TV source and the app opens straight to Live TV.
+Rivulet works with several kinds of Live TV source. You don't need a Plex, Jellyfin, or Emby server. Add just a Live TV source and the app opens straight to Live TV.
 
 - **What's On**: what's airing now, what starts soon, and a For You row that learns what you watch.
 - **Guide**: standard guide layout if you want.
@@ -90,8 +90,8 @@ Playback runs on [AetherEngine](https://github.com/superuser404notfound/AetherEn
 
 - **Containers**: MKV, MP4, WebM, MPEG-TS, AVI, WMV, OGG, FLV, and more.
 - **Video**: H.264 and HEVC (including 10-bit) decode in hardware. AV1, VP9, MPEG-2, VC-1, MPEG-4 Part 2, and almost anything else FFmpeg can decode play in software. Interlaced broadcasts are deinterlaced on the GPU.
-- **HDR**: HDR10, HDR10+, HLG, and Dolby Vision profiles 5, 8.1, and 8.4. Profile 7 FEL plays with both layers composed on a Dolby Vision TV. Profile 7 MEL, and FEL titles too heavy to compose in real time, play as 8.1. Without a Dolby Vision TV, Profile 7 plays its HDR10 base layer.
-- **Audio**: Apple TV can't bitstream audio, so everything goes through tvOS. AAC, AC3, E-AC3, FLAC, and ALAC are handed to tvOS as-is, and it outputs them the same way it does in Apple's own apps. Atmos in E-AC3 reaches an Atmos receiver as Dolby MAT, and everything else goes out as multichannel PCM or Dolby Digital, depending on your Apple TV audio settings. TrueHD, DTS, DTS-HD MA, Opus, Vorbis, and PCM are decoded by Rivulet first and reach tvOS as lossless multichannel audio. TrueHD and DTS-HD MA stay lossless, but your receiver will show PCM instead of the original format.
+- **HDR**: HDR10, HDR10+, HLG, and Dolby Vision profiles 5, 8.1, and 8.4. On a Dolby Vision TV, Profile 7 plays as 8.1. Without one, it plays its HDR10 base layer.
+- **Audio**: Apple TV can't bitstream audio, so everything goes through tvOS. AAC, AC3, E-AC3, FLAC, and ALAC are handed to tvOS as-is, and it outputs them the same way it does in Apple's own apps. Atmos in E-AC3 reaches an Atmos receiver as Dolby MAT, and everything else goes out as multichannel PCM or Dolby Digital, depending on your Apple TV audio settings. TrueHD, DTS, DTS-HD MA, Opus, Vorbis, and PCM are decoded by Rivulet first and reach tvOS as lossless multichannel audio. TrueHD and DTS-HD MA stay lossless at up to 7.1, but your receiver will show PCM instead of the original format.
 - **Subtitles**: SRT, ASS/SSA, and WebVTT, plus image subtitles (PGS, DVB, DVD/VobSub), CEA-608 closed captions, DVB teletext, and external subtitle files from your server. ASS/SSA renders through libass with its original styling and embedded fonts.
 - **Stream quality**: direct play by default, or pick a transcode quality when bandwidth is tight.
 - **Content filtering** (work in progress): mute language and skip scenes on your device, from the title's subtitles or an imported EDL list. The file is never touched.
@@ -181,6 +181,7 @@ Third-party components retain their original licenses. FFmpeg is included under 
 - [libass](https://github.com/libass/libass): ASS/SSA subtitle rendering
 - [Plex](https://plex.tv/): media server platform
 - [Jellyfin](https://jellyfin.org/): open source media server
+- [Emby](https://emby.media/): media server platform
 - [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr): IPTV management
 - [TMDB](https://www.themoviedb.org/): artwork and metadata for Discover
 
@@ -188,7 +189,7 @@ Third-party components retain their original licenses. FFmpeg is included under 
 
 <div align="center">
 
-Rivulet is not affiliated with or endorsed by Plex, Inc. or the Jellyfin project.
+Rivulet is not affiliated with or endorsed by Plex, Inc., the Jellyfin project, or Emby LLC.
 
 Media used in the README is AI generated for copyright reasons.
 

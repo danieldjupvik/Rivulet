@@ -47,12 +47,12 @@ enum CrossfadeOption: String, CaseIterable, Hashable, CustomStringConvertible {
 enum SettingsPage: Hashable, CaseIterable {
     case root
     case appearance, playback, music, liveTV, servers, about
-    case plex, plexServerDetail, jellyfin, iptv, libraries, cache
+    case plex, plexServerDetail, jellyfin, emby, iptv, libraries, cache
     case homeRows
     case liveTVSourceDetail, liveTVFavorites
     case addLiveTVSource, addXtream, addDispatcharr, addTvheadend, addThreadfin, addPlaylistURL
     case appIconPicker, homeHeroPicker, detailRatingPicker, autoplayCountdownPicker, skipIntervalPicker, skipBackIntervalPicker
-    case heightSpeakersPicker, subtitleModePicker, autoplayLimitPicker
+    case subtitleModePicker, autoplayLimitPicker
     case homeQualityPicker, awayQualityPicker
     case audioLanguagePicker, subtitleLanguagePicker
     case contentFilter, contentFilterStrength, contentFilterWords
@@ -69,6 +69,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .plex: return String(localized: "Plex")
         case .plexServerDetail: return String(localized: "Server")
         case .jellyfin: return String(localized: "Jellyfin Server")
+        case .emby: return String(localized: "Emby Server")
         case .iptv: return String(localized: "Live TV Sources")
         case .liveTVSourceDetail: return String(localized: "Source Details")
         case .liveTVFavorites: return String(localized: "Favorites")
@@ -87,7 +88,6 @@ enum SettingsPage: Hashable, CaseIterable {
         case .autoplayCountdownPicker: return String(localized: "Autoplay Countdown")
         case .skipIntervalPicker: return String(localized: "Skip Forward Length")
         case .skipBackIntervalPicker: return String(localized: "Skip Back Length")
-        case .heightSpeakersPicker: return String(localized: "Height Speakers")
         case .subtitleModePicker: return String(localized: "Subtitles")
         case .autoplayLimitPicker: return String(localized: "Autoplay Limit")
         case .homeQualityPicker: return String(localized: "Home Streaming")
@@ -151,11 +151,12 @@ enum SkipInterval: Int, CaseIterable, CustomStringConvertible {
     case tenSeconds = 10
     case fifteenSeconds = 15
     case thirtySeconds = 30
+    case sixtySeconds = 60
 
     /// UserDefaults key backing the Skip Length setting.
-    static let storageKey = "skipSeconds"
+    static let storageKey = SkipLengthKeys.forward
     /// Backs Skip Back Length; unset means "same as forward".
-    static let backStorageKey = "skipBackSeconds"
+    static let backStorageKey = SkipLengthKeys.back
     static let defaultValue: SkipInterval = .thirtySeconds
 
     var description: String { String(localized: "\(rawValue) seconds") }
