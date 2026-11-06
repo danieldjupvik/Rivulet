@@ -9,6 +9,7 @@ final class SettingsUsageTelemetryTests: XCTestCase {
 
     func test_snapshot_keysPreferenceRowsByPage() {
         let snapshot = SettingsUsageTelemetry.snapshot()
+        XCTAssertNotNil(snapshot["playback.upscaleLowResolution"])
         XCTAssertNotNil(snapshot["playback.dolbyVisionFEL"])
         XCTAssertNotNil(snapshot["playback.heightSpeakers"])
         XCTAssertNotNil(snapshot["sidebar.showDiscoverTab"])

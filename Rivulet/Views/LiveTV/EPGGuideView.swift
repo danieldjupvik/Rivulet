@@ -1398,7 +1398,7 @@ final class EPGLayout: UICollectionViewLayout {
 
 // MARK: - Cells
 
-final class ProgramCellView: UICollectionViewCell {
+final class ProgramCellView: UICollectionViewCell, KeepsUpAtTop {
     static let reuseID = "ProgramCellView"
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
