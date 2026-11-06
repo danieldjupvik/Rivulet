@@ -802,6 +802,8 @@ enum HeroPageMotion {
     /// Fade in over 0.55 s, starting 0.4 s into the 1 s slide once the logo is ready.
     static let metadataFade: TimeInterval = 0.55
     static let metadataDelay: TimeInterval = 0.4
+    /// The outgoing metadata and buttons fade out this fast on a backward page.
+    static let outgoingFade: TimeInterval = 0.12
 
     /// Forward paging slides the metadata out; backward paging fades it in place
     /// so the old title never travels across the incoming artwork.
@@ -812,7 +814,7 @@ enum HeroPageMotion {
         snapshot.isUserInteractionEnabled = false
         container.insertSubview(snapshot, aboveSubview: view)
         if direction == .backward {
-            UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseOut]) {
+            UIView.animate(withDuration: outgoingFade, delay: 0, options: [.curveEaseOut]) {
                 snapshot.alpha = 0
             } completion: { _ in snapshot.removeFromSuperview() }
             return

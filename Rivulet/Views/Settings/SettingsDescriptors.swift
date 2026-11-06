@@ -26,6 +26,8 @@ struct SettingDescriptor {
 // MARK: - Descriptor Store
 
 enum SettingsDescriptorStore {
+    private static let embyName = MediaProviderKind.emby.displayName
+
     static func descriptor(for id: String) -> SettingDescriptor? {
         if let exact = descriptors[id] { return exact }
         // Rows built per item at runtime carry the item's identity in their id,
@@ -33,6 +35,7 @@ enum SettingsDescriptorStore {
         // is what the panel wants to explain anyway.
         if id.hasPrefix("homeRow_") { return descriptors["homeRowItem"] }
         if id.hasPrefix("pinnedCollection_") { return descriptors["pinnedCollection"] }
+        if id.hasPrefix("homePlaylist_") { return descriptors["homePlaylist"] }
         if id.hasPrefix("fav_") { return descriptors["liveTVFavoriteRow"] }
         if id.hasPrefix("cfw_"), id != "cfw_add" { return descriptors["customWordRow"] }
         if id.hasPrefix("sq_") { return descriptors["streamingQualityOption"] }
@@ -55,7 +58,7 @@ enum SettingsDescriptorStore {
         // MARK: Root Categories
         "cat_appearance": SettingDescriptor(
             icon: "paintbrush.fill",
-            description: "Customize how Rivulet looks — display size, hero banners, sidebar libraries, and content discovery rows."
+            description: "Customize how Rivulet looks: the sidebar, Top Shelf, hero banners, Home and library rows, and ratings."
         ),
         "cat_playback": SettingDescriptor(
             icon: "play.fill",
@@ -67,7 +70,7 @@ enum SettingsDescriptorStore {
         ),
         "cat_servers": SettingDescriptor(
             icon: "server.rack",
-            description: "Manage your Plex server connection and user profiles."
+            description: "Manage your Plex, Jellyfin and Emby server connections and user profiles."
         ),
         "cat_about": SettingDescriptor(
             icon: "info.circle.fill",
@@ -102,23 +105,39 @@ enum SettingsDescriptorStore {
 
         "homeRows": SettingDescriptor(
             icon: "rectangle.grid.1x2",
-            description: "Turn Home rows off on this Apple TV. Rows come from your Plex account; a library shows here once it is pinned to Home in Plex."
+            description: "Choose what appears on Home and in what order."
         ),
-        "showAllHomeRows": SettingDescriptor(
-            icon: "eye",
-            description: "Show every row your Plex account puts on Home again."
+        "resetHomeRows": SettingDescriptor(
+            icon: "arrow.counterclockwise",
+            description: "Put every Home row back in its original order and show the ones you hid. Favorites and playlists are turned off; pinned collections stay."
         ),
         "homeRowItem": SettingDescriptor(
             icon: "rectangle.grid.1x2",
-            description: "Turn this row off to hide it on this Apple TV. Your Plex account is unchanged, so the row keeps showing in the Plex app and on your other devices."
+            description: "Click to show or hide this row on Home. Press and hold to move it up or down."
         ),
         "pinnedCollection": SettingDescriptor(
             icon: "pin",
             description: "A collection you pinned from its tile menu. Hold Select to reorder, or Select to unpin it."
         ),
+        "homePlaylist": SettingDescriptor(
+            icon: "music.note.list",
+            description: "Click to show or hide this playlist on Home. Once it is shown, press and hold to move it up or down."
+        ),
+        "homeFavoriteMovies": SettingDescriptor(
+            icon: "star",
+            description: "Click to show or hide your favorite movies on Home. Once they are shown, press and hold to move them up or down."
+        ),
+        "homeFavoriteShows": SettingDescriptor(
+            icon: "star",
+            description: "Click to show or hide your favorite TV shows on Home. Once they are shown, press and hold to move them up or down."
+        ),
+        "resetHomeHero": SettingDescriptor(
+            icon: "arrow.counterclockwise",
+            description: "Put the hero back to Trending only, with no playlists."
+        ),
         "homeHero": SettingDescriptor(
             icon: "sparkles.rectangle.stack",
-            description: "The large banner at the top of the Home screen. Trending features popular titles from your library. Or pick one of your Home lists: Continue Watching, Recently Added or your Watchlist."
+            description: "Choose what the hero shows. Pick more than one to mix them. Turn all off to hide the hero."
         ),
         "topShelfStyle": SettingDescriptor(
             icon: "tv",
@@ -285,6 +304,10 @@ enum SettingsDescriptorStore {
             icon: "internaldrive",
             description: "View storage usage and manage cached images, metadata, and other temporary data."
         ),
+        "iCloudSync": SettingDescriptor(
+            icon: "icloud",
+            description: "Keeps your settings, servers and Live TV sources the same on every Apple TV, iPhone and iPad signed in to your Apple Account. Sign-ins are stored encrypted in iCloud. Watch progress comes from your servers and is not part of this."
+        ),
         "forceRefresh": SettingDescriptor(
             icon: "arrow.clockwise",
             description: "Clear metadata cache and reload all library content from your Plex server. Images will be kept."
@@ -312,6 +335,10 @@ enum SettingsDescriptorStore {
             description: "Off hides this server's channels from Live TV, for when the same channels come from another source. Its libraries stay."
         ),
         "jellyfinLiveTV": SettingDescriptor(
+            icon: "tv.and.mediabox",
+            description: "Off hides this server's channels from Live TV, for when the same channels come from another source. Its libraries stay."
+        ),
+        "embyLiveTV": SettingDescriptor(
             icon: "tv.and.mediabox",
             description: "Off hides this server's channels from Live TV, for when the same channels come from another source. Its libraries stay."
         ),
@@ -366,6 +393,42 @@ enum SettingsDescriptorStore {
         "jellyfinSignOut": SettingDescriptor(
             icon: "rectangle.portrait.and.arrow.right",
             description: "Sign out of this Jellyfin server and remove its saved credentials."
+        ),
+        "embyServer": SettingDescriptor(
+            icon: "server.rack",
+            description: "Sign in to your \(embyName) server."
+        ),
+        "embyServerInfo": SettingDescriptor(
+            icon: "server.rack",
+            description: "The \(embyName) server you are signed in to."
+        ),
+        "embyUserInfo": SettingDescriptor(
+            icon: "person",
+            description: "The \(embyName) user you are signed in as."
+        ),
+        "embyURL": SettingDescriptor(
+            icon: "globe",
+            description: "Your \(embyName) server's address, including the port, for example http://192.168.1.100:8096. You can paste the address from your browser."
+        ),
+        "embyUsername": SettingDescriptor(
+            icon: "person",
+            description: "Your \(embyName) username."
+        ),
+        "embyPassword": SettingDescriptor(
+            icon: "key",
+            description: "Used once, to sign in. Rivulet keeps the access token \(embyName) returns, not the password. Leave it empty if your user has none."
+        ),
+        "embySignIn": SettingDescriptor(
+            icon: "link",
+            description: "Check the server and sign in."
+        ),
+        "embyRefresh": SettingDescriptor(
+            icon: "arrow.clockwise",
+            description: "Reload this server's libraries and Home rows now."
+        ),
+        "embySignOut": SettingDescriptor(
+            icon: "rectangle.portrait.and.arrow.right",
+            description: "Sign out of this \(embyName) server and remove its saved credentials."
         ),
         "connectPlex": SettingDescriptor(
             icon: "link",
@@ -598,6 +661,7 @@ enum SettingsDescriptorStore {
         case .plex: return ("server.rack", .systemOrange)
         case .plexServerDetail: return ("server.rack", .systemOrange)
         case .jellyfin: return ("server.rack", .systemPurple)
+        case .emby: return ("server.rack", .systemGreen)
         case .iptv: return ("tv.and.mediabox", .systemBlue)
         case .libraries: return ("sidebar.squares.left", .systemPurple)
         case .homeRows: return ("rectangle.grid.1x2", .systemTeal)
