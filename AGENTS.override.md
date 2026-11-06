@@ -22,16 +22,29 @@ Codex loads this file instead of the root AGENTS.md. Before working, also read t
 - Prefer the visible checkout. Preserve unrelated changes and stashes; do not treat old experiments as disposable without checking.
 - Validate code changes with builds and relevant tests. Textually clean merges do not prove behavior or signing works. Physical-device verification matters for tvOS focus and remote gestures.
 
+## Preparing upstream contributions
+
+Apply upstream's technical and product-fit review standards before calling a change ready. The November 2026 integrations exposed specific gaps in our reviews; use these checks to reduce avoidable maintainer work, not to promise acceptance without revisions.
+
+- **Check current integration context.** Inspect recent upstream changes and nearby implementations before designing a fix, then recheck the target branch before submission. Account for new callers, relocated shared code, and features such as theme-video backdrops. Do not solve against an old fork snapshot or discard newer upstream behavior to simplify the patch.
+- **Reuse the existing owner.** Prefer the current loader, state machine, input predicate, and animation coordinator. Avoid parallel fetch paths, duplicate gesture state, and separate animations for parts of one transition. Keep abstractions proportional to actual callers; fewer lines alone do not establish a simpler design.
+- **Review asynchronous ordering explicitly.** Reuse already-fetched data, cancel superseded work before starting more, and fetch independent inputs concurrently where appropriate. Check stale completion after navigation or reconfiguration, failure/fallback paths, and late data arriving after the user takes focus. Initial positioning must not override subsequent user navigation.
+- **Review the whole input sequence.** Share eligibility guards between touch swipes and discrete presses where they represent the same action. Check fresh versus continuing gestures, holds/repeats, arrival on a control, and first/last-item boundaries in both directions. In particular, paging from item 1 to item 0 must not let the same gesture escape into the sidebar. Do not substitute an arbitrary delay for gesture ownership without evidence that timing is the intended policy.
+- **Exercise lifecycle transitions.** Check reconfiguration during animation, cancellation, presentation/dismissal, and animated versus immediate updates. Preserve related behavior such as backdrop/video suspension and focus restoration, not only the primary visual effect.
+- **Keep the review diff focused.** Separate fork identity/configuration and unrelated cleanup from upstream contributions. Inspect the complete diff against the intended upstream base for accidental changes and redundant state. Use the simplify skill for implementation cleanup, then review behavior again; skill completion is not a quality verdict.
+- **Test observable regressions.** Prefer cases that fail before the fix and cover the ordering or boundary that caused the bug. Avoid tests that merely repeat implementation constants. Use controlled async completions or bounded condition waits where possible; isolate locale/timezone and app-identity assumptions. Run the relevant checks and disclose flaky failures even if an isolated rerun passes.
+- **Report evidence, not certainty.** State what builds/tests and physical-device checks actually covered, plus remaining gaps. For focus work, distinguish simulator results from remote testing. Do not call code "perfect" or "production-ready" solely because tests, skills, or automated reviews passed. Maintainer edits can be bug fixes, integration requirements, or preferences; distinguish them using the actual diff and carry forward only supported lessons.
+
 ## Features the fork intentionally retains
 
 - Keep Dolby Vision Profile 7 FEL composition, Height Speakers / TrueHD Atmos and DTS:X height rendering, and Dolby Vision still reshaping.
 - Upstream commit 60bc2b23c82ecf05611a4ea0d63ab42cca3aaa7f removes those features. Do not silently accept that removal during a sync. Prefer normal upstream ancestry with a separate fork restoration commit over cherry-picking every other upstream commit.
 - Preserve all four AetherEngine traits: DualLayerDolbyVision, DolbyVisionStillReshaping, TrueHDObjectAudio, DTSXObjectAudio. Retention also requires playback configuration, settings, localization, diagnostics, tests, notices, and resolved dependencies; traits alone are insufficient.
-- Keep fork bundle IDs, signing, and app groups. Incoming iCloud entitlements and runtime container IDs must match the fork's provisioning; do not assume upstream's iCloud.com.gstudios.rivulet is usable by this fork.
+- Keep fork bundle IDs, signing, and app groups. Use the fork-owned iCloud.com.danieldjupvik.rivulet.lab.sync container in both app entitlements and AccountVault. Incoming iCloud settings must match the fork's provisioning, not upstream's container.
 
 ## Branch roles (snapshot: 2026-11-06)
 
-Existing upstream contribution branches: episode-selection-fix, hero-navigation-improvements, sidebar-improvements. Retain their remote names while PRs are open. Maintainer commits on those branches do not automatically reach fork main; check and integrate needed follow-ups deliberately.
+Former upstream contribution branches: episode-selection-fix, hero-navigation-improvements, sidebar-improvements. The maintainer integrated all three through new commits and closed their PRs on November 6. Their former merge conflicts no longer need resolution. Verify integration before cleaning up these branches; do not reopen or update the closed PRs automatically.
 
 Existing fork PR branches: feat/episode-poster-effects, fix/episode-detail-navigation, fix/metadata-badge-styling.
 
@@ -41,13 +54,10 @@ For new branches, prefer contrib/ for upstream contributions, fork/ for fork-spe
 
 ## Audit context (2026-11-06; recheck before acting)
 
-At the audit, upstream was 5454ea7e and fork main was 78901808: 34 upstream commits absent from the fork. Recompute these facts before integration. Update or remove this dated section and the branch snapshot as work lands; neither is a permanent task queue.
+The sync branch sync/upstream-2026-11-06 was created from fork main 96fac940. Commit 807d27d5 merges upstream dd6e1c46 with fork-owned iCloud configuration; be8b50c7 restores Dolby features separately. These commits were local and not merged into fork main when these notes were written. Recheck remote and branch state before acting.
 
-- Fork main and the hero contribution conflict in HeroButtonRowView.swift: upstream's 0.3-second Next-arrival guard overlaps our gesture-based guard. Resolve behavior deliberately.
-- Episode-selection contribution conflicts in the relocated RivuletCore/Models/Media/EpisodePicker.swift: retain both showPlayTarget and upstream's nextEpisode/upNext helpers.
-- Maintainer follow-up d7b8f9727aebe9246d3f0db262e9e7b93e5c5b8d fixes redundant/superseded loads, concurrent target fetching, and late rail repositioning. It was on the remote contribution branch but absent from fork main at audit time.
-- AetherEngine 7.57.0 still declares the four traits. Restoring TrueHD requires resolving its dependency again; upstream's lockfile dropped LibTrueHD. Compatibility still needs build and device validation.
+- Upstream adopted gesture-based hero arrival protection for both swipes and button presses. The temporary delay experiment was discarded at the user's request; use the integrated upstream implementation.
+- Integrated episode selection includes the maintainer's redundant/superseded-load fixes, concurrent target fetching, and protection against late rail repositioning. Keep these alongside the relocated EpisodePicker helpers.
+- AetherEngine 7.57.0 retains the four traits; the restoration pins LibTrueHD 3.2.0. The combined app builds and all 11 targeted Dolby/settings tests pass. The broader suite has known Emby app-name/timezone test failures left unchanged by request, plus a theme-video timing failure that passed an isolated rerun. Physical Dolby playback and cross-device iCloud sync still need validation.
 
-The proposed integration order is to resolve the two contribution conflicts against upstream main while preserving the maintainer's episode-loading fixes, then prepare a separate fork sync that includes those fixes, restores the retained Dolby features, and handles fork iCloud configuration. Build and test the combined result before proposing a merge. Leave the parked experiments alone.
-
-This order is context, not standing authorization to perform the pending sync or PR updates. Confirm the current request's scope before proceeding.
+Build and test the combined result before proposing a merge. Leave the parked experiments alone. These notes are context, not standing authorization to commit, push, merge, or publish.
