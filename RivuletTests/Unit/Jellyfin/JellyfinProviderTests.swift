@@ -211,6 +211,33 @@ final class JellyfinProviderTests: XCTestCase {
         XCTAssertEqual(server.requests.last?.url?.path, "/Shows/show1/Seasons")
     }
 
+    /// Jellyfin lists Specials (season 0) first; they go after the last season (#534).
+    func test_children_ofSeries_listsSpecialsLast() async throws {
+        server.respond("/Items/show1", body: #"{"Id":"show1","Type":"Series"}"#)
+        server.respond("/Shows/show1/Seasons", body: #"""
+            {"Items":[
+              {"Id":"s0","Name":"Specials","Type":"Season","SeriesId":"show1","IndexNumber":0},
+              {"Id":"s1","Name":"Season 1","Type":"Season","SeriesId":"show1","IndexNumber":1},
+              {"Id":"s2","Name":"Season 2","Type":"Season","SeriesId":"show1","IndexNumber":2}],
+             "TotalRecordCount":3}
+            """#)
+        let seasons = try await provider().children(of: MediaItemRef(providerID: "jellyfin:srv", itemID: "show1"))
+        XCTAssertEqual(seasons.map(\.ref.itemID), ["s1", "s2", "s0"])
+    }
+
+    /// The show's flat episode list follows the pills: the specials come last.
+    func test_allEpisodes_listsSpecialsLast() async throws {
+        server.respond("/Shows/show1/Episodes", body: #"""
+            {"Items":[
+              {"Id":"sp1","Name":"OVA","Type":"Episode","SeriesId":"show1","SeasonId":"s0","IndexNumber":1,"ParentIndexNumber":0},
+              {"Id":"e1","Name":"Pilot","Type":"Episode","SeriesId":"show1","SeasonId":"s1","IndexNumber":1,"ParentIndexNumber":1},
+              {"Id":"e2","Name":"Two","Type":"Episode","SeriesId":"show1","SeasonId":"s1","IndexNumber":2,"ParentIndexNumber":1}],
+             "TotalRecordCount":3}
+            """#)
+        let episodes = try await provider().allEpisodes(of: MediaItemRef(providerID: "jellyfin:srv", itemID: "show1"))
+        XCTAssertEqual(episodes.map(\.ref.itemID), ["e1", "e2", "sp1"])
+    }
+
     func test_items_pagesAndFiltersByLibraryKind() async throws {
         server.respond("/Items", body: #"{"Items":[\#(JellyfinFixtures.series)],"TotalRecordCount":120}"#)
         let lib = MediaLibrary(id: "lib-tv", providerID: "jellyfin:srv", title: "TV", kind: .shows)
@@ -221,7 +248,7 @@ final class JellyfinProviderTests: XCTestCase {
         XCTAssertTrue(query.contains(URLQueryItem(name: "parentId", value: "lib-tv")))
         XCTAssertTrue(query.contains(URLQueryItem(name: "includeItemTypes", value: "Series")))
         XCTAssertTrue(query.contains(URLQueryItem(name: "sortBy", value: "SortName")))
-        XCTAssertTrue(query.contains(URLQueryItem(name: "fields", value: "Overview,RecursiveItemCount,SortName,ParentId,MediaSourceCount")))
+        XCTAssertTrue(query.contains(URLQueryItem(name: "fields", value: "Overview,RecursiveItemCount,SortName,ParentId,MediaSourceCount,Genres,ProviderIds")))
     }
 
     func test_items_lastPage_hasNoNextPage() async throws {
@@ -254,6 +281,20 @@ final class JellyfinProviderTests: XCTestCase {
 
         XCTAssertEqual(items.map(\.ref.itemID), ["m-new", "show"])
         XCTAssertFalse(server.requests.contains { $0.url?.query?.contains("lib-music") == true })
+    }
+
+    func test_favorites_askForTheLibrarysFavoritesByName() async throws {
+        server.respond("/Items", body: #"{"Items":[],"TotalRecordCount":0}"#)
+        let library = MediaLibrary(id: "lib-m", providerID: "jellyfin:srv", title: "Movies", kind: .movies)
+        let p = provider()
+        XCTAssertTrue(p.supportsFavorites)
+        _ = try await p.favorites(in: library, limit: 25)
+        let query = URLComponents(url: try XCTUnwrap(server.requests.first?.url), resolvingAgainstBaseURL: false)?
+            .queryItems?.reduce(into: [String: String]()) { $0[$1.name.lowercased()] = $1.value } ?? [:]
+        XCTAssertEqual(query["filters"], "IsFavorite")
+        XCTAssertEqual(query["parentid"], "lib-m")
+        XCTAssertEqual(query["sortby"], "SortName")
+        XCTAssertEqual(query["limit"], "25")
     }
 
     func test_fullDetail_series_fetchesNextUp() async throws {
@@ -358,7 +399,7 @@ final class JellyfinProviderTests: XCTestCase {
         _ = try await provider().recentlyAddedHub(in: home)
         _ = try await provider().recentlyAddedHub(in: movies)
         let queries = server.requests.map { $0.url?.query ?? "" }
-        XCTAssertTrue(queries[0].contains("includeItemTypes=Movie,Episode,Video"), queries[0])
+        XCTAssertTrue(queries[0].contains("includeItemTypes=Movie,Episode,Video,MusicVideo"), queries[0])
         XCTAssertFalse(queries[1].contains("includeItemTypes"))
     }
 
@@ -478,7 +519,7 @@ final class JellyfinProviderTests: XCTestCase {
         let items = try await provider().search("the")
 
         XCTAssertEqual(items.map(\.kind), [.movie, .episode])
-        XCTAssertTrue(server.query(0).contains(URLQueryItem(name: "includeItemTypes", value: "Movie,Series,Episode")))
+        XCTAssertTrue(server.query(0).contains(URLQueryItem(name: "includeItemTypes", value: "Movie,Series,Episode,MusicVideo")))
     }
 
     func test_search_perLibrary_asksOncePerParent_inOrder() async throws {

@@ -13,9 +13,11 @@
 		A7F159552F04124A001B2177 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A7F159542F04124A001B2177 /* Sentry */; };
 		B2000001AAAA000000000001 /* AetherEngine in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000001 /* AetherEngine */; };
 		B2000001AAAA000000000002 /* Libass in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000002 /* Libass */; };
+		B2000001AAAA000000000004 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000004 /* SwiftDraw */; };
 		B2000001AAAA000000000003 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000003 /* FluidAudio */; };
 		B30000190000000000000019 /* AetherEngine in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000001 /* AetherEngine */; };
 		B30000210000000000000021 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A7F159542F04124A001B2177 /* Sentry */; };
+		B30000220000000000000022 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000004 /* SwiftDraw */; };
 		C40000010000000000000001 /* AssetPackExtension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = C40000020000000000000002 /* AssetPackExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -173,6 +175,7 @@
 				B2000001AAAA000000000002 /* Libass in Frameworks */,
 				B2000001AAAA000000000003 /* FluidAudio in Frameworks */,
 				A7F159552F04124A001B2177 /* Sentry in Frameworks */,
+				B2000001AAAA000000000004 /* SwiftDraw in Frameworks */,
 			);
 		};
 		A78483072F062C2000F9E6D0 /* Frameworks */ = {
@@ -185,6 +188,7 @@
 			files = (
 				B30000190000000000000019 /* AetherEngine in Frameworks */,
 				B30000210000000000000021 /* Sentry in Frameworks */,
+				B30000220000000000000022 /* SwiftDraw in Frameworks */,
 			);
 		};
 		C40000080000000000000008 /* Frameworks */ = {
@@ -278,6 +282,7 @@
 				B2000010AAAA000000000001 /* AetherEngine */,
 				B2000010AAAA000000000002 /* Libass */,
 				B2000010AAAA000000000003 /* FluidAudio */,
+				B2000010AAAA000000000004 /* SwiftDraw */,
 			);
 			productName = Rivulet;
 			productReference = A72E03DA2EDA297D003A73DA /* Rivulet.app */;
@@ -322,6 +327,7 @@
 			packageProductDependencies = (
 				B2000010AAAA000000000001 /* AetherEngine */,
 				A7F159542F04124A001B2177 /* Sentry */,
+				B2000010AAAA000000000004 /* SwiftDraw */,
 			);
 			productName = "Rivulet iOS";
 			productReference = B30000010000000000000001 /* Rivulet iOS.app */;
@@ -379,6 +385,7 @@
 			knownRegions = (
 				en,
 				de,
+				el,
 				Base,
 			);
 			mainGroup = A72E03D12EDA297D003A73DA;
@@ -388,6 +395,7 @@
 				B2000020AAAA000000000001 /* XCRemoteSwiftPackageReference "AetherEngine" */,
 				B2000020AAAA000000000002 /* XCRemoteSwiftPackageReference "LibassBuild" */,
 				B2000020AAAA000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				B2000020AAAA000000000004 /* XCRemoteSwiftPackageReference "SwiftDraw" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A72E03DB2EDA297D003A73DA /* Products */;
@@ -507,7 +515,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.danieldjupvik.rivulet.lab.TopShelfExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
@@ -538,7 +546,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.danieldjupvik.rivulet.lab.TopShelfExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
@@ -588,7 +596,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = (
 					"-lbz2",
 					"-liconv",
@@ -649,7 +657,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = (
 					"-lbz2",
 					"-liconv",
@@ -848,6 +856,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconSimpleColor AppIconSimpleWhite AppIconPixel";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RivuletiOS/RivuletiOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 77;
 				DEVELOPMENT_TEAM = 7S5GAMFHVA;
@@ -871,6 +880,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -885,6 +896,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconSimpleColor AppIconSimpleWhite AppIconPixel";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = RivuletiOS/RivuletiOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 77;
 				DEVELOPMENT_TEAM = 7S5GAMFHVA;
@@ -908,6 +920,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -934,7 +948,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.danieldjupvik.rivulet.lab.AssetPackExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
@@ -963,7 +977,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.danieldjupvik.rivulet.lab.AssetPackExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
@@ -1046,7 +1060,7 @@
 			repositoryURL = "https://github.com/superuser404notfound/AetherEngine";
 			requirement = {
 				kind = exactVersion;
-				version = 7.53.1;
+				version = 7.57.0;
 			};
 			traits = (
 				DualLayerDolbyVision,
@@ -1073,6 +1087,14 @@
 			traits = (
 			);
 		};
+		B2000020AAAA000000000004 /* XCRemoteSwiftPackageReference "SwiftDraw" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/swhitty/SwiftDraw";
+			requirement = {
+				kind = exactVersion;
+				version = 0.29.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1095,6 +1117,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B2000020AAAA000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		B2000010AAAA000000000004 /* SwiftDraw */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B2000020AAAA000000000004 /* XCRemoteSwiftPackageReference "SwiftDraw" */;
+			productName = SwiftDraw;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

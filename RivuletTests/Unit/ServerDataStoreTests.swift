@@ -52,8 +52,8 @@ final class ServerDataStoreTests: XCTestCase {
         XCTAssertEqual(store.libraries.map(\.id), ["m", "t", "mu", "p", "x"])
         XCTAssertFalse(store.homeRows.contains { $0.id.hasSuffix("|p.recentlyAdded") },
                        "a photo library has no Home row")
-        XCTAssertFalse(store.homeRows.contains { $0.id.hasSuffix("|mu.recentlyAdded") },
-                       "a music library has no Home row")
+        XCTAssertTrue(store.homeRows.contains { $0.id.hasSuffix("|mu.recentlyAdded") },
+                      "a music library has a Recently Added row, as on Plex")
     }
 
     func test_load_rows_continueWatchingThenEachLibrarysRecentlyAdded() async {
@@ -226,6 +226,17 @@ final class ServerDataStoreTests: XCTestCase {
 
     func test_labelsServers_falseWithoutAJellyfinAccount() {
         XCTAssertFalse(ServerDataStore(observesRefresh: false).labelsServers)
+    }
+
+    func test_shown_keepsExtraPlexServers_andOtherKindsOnlyForTheirSignedInAccount() {
+        let office = StubMediaProvider(id: "plex:office", kind: .plex)
+        let stale = StubMediaProvider(id: "jellyfin:old", kind: .jellyfin)
+        let all: [any MediaProvider] = [office, jellyfin, stale]
+
+        XCTAssertEqual(ServerDataStore.shown(all, accountIDs: [.jellyfin: "jellyfin:srv"]).map(\.id),
+                       ["plex:office", "jellyfin:srv"])
+        XCTAssertEqual(ServerDataStore.shown(all, accountIDs: [:]).map(\.id), ["plex:office"],
+                       "a restricted profile, or a signed-out kind, shows none of the other kinds")
     }
 
     func test_displayName() {

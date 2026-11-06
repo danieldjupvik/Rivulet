@@ -7,9 +7,10 @@
 //
 //  Settings > Servers > Jellyfin Server. Signed out: a form built from the
 //  same rows as the Live TV "My Own Server" page, sharing its draft and its
-//  failure popup. Signed in: the server, the user, and Sign Out.
+//  failure popup. Signed in: the server, the user, Refresh and Sign Out.
 //
 
+import Combine
 import Foundation
 import UIKit
 
@@ -26,13 +27,31 @@ extension SettingsContent {
                 SettingsRowItem(id: "jellyfinUserInfo", title: "User",
                                 kind: .info(value: { account.userName })),
                 SettingsRowItem(id: "jellyfinRefresh", title: "Refresh",
-                                kind: .action(destructive: false, handler: { _ in ServerDataStore.shared.reload() })),
+                                kind: .action(destructive: false, handler: { vc in
+                    let page = vc as? SettingsPageViewController
+                    ServerDataStore.shared.reload()
+                    page?.reloadRows()
+                    Task { @MainActor [weak page] in
+                        for await loading in ServerDataStore.shared.$isLoading.values where !loading { break }
+                        page?.reloadRows()
+                    }
+                }), isBusy: { ServerDataStore.shared.isLoading }),
                 SettingsRowItem(id: "jellyfinSignOut", title: "Sign Out",
                                 kind: .action(destructive: true, handler: { vc in
-                    Task { @MainActor in
-                        await JellyfinSession.signOut()
-                        addSourceDraft = AddSourceDraft()
-                        (vc as? SettingsPageViewController)?.reloadRows()
+                    func signOut(_ scope: SignOutScope?) {
+                        Task { @MainActor in
+                            await JellyfinSession.signOut(scope: scope)
+                            addSourceDraft = AddSourceDraft()
+                            (vc as? SettingsPageViewController)?.reloadRows()
+                        }
+                    }
+                    if CloudSync.shared.isSynced(accountID: account.providerID) {
+                        presentSignOutChoice(
+                            on: vc, title: String(localized: "Sign Out of Jellyfin?"),
+                            message: String(localized: "Your Jellyfin sign-in is shared through iCloud. Sign out of this device only, or of every device?"),
+                            thisDevice: { signOut(.thisDevice) }, everywhere: { signOut(.everywhere) })
+                    } else {
+                        signOut(nil)
                     }
                 }))
             ]
@@ -89,7 +108,7 @@ extension SettingsContent {
                 _ = try await JellyfinSession.signIn(serverURL: url, username: username, password: draft.password)
                 finish(page, draft: draft)
             } catch {
-                fail(draft, page: page, title: String(localized: "Couldn't Sign In"), message: jellyfinFailureCopy(for: error))
+                fail(draft, page: page, title: String(localized: "Couldn't Sign In"), message: JellyfinSession.failureMessage(for: error))
             }
         }
     }
@@ -126,7 +145,7 @@ extension SettingsContent {
                 page?.reloadRows()
             } catch {
                 popup?.dismiss(animated: true)
-                fail(draft, page: page, title: String(localized: "Couldn't Sign In"), message: jellyfinQuickConnectFailureCopy(for: error))
+                fail(draft, page: page, title: String(localized: "Couldn't Sign In"), message: JellyfinSession.quickConnectFailureMessage(for: error))
             }
         }
     }
@@ -134,31 +153,5 @@ extension SettingsContent {
     /// Lets the code popup cancel the task that presented it.
     @MainActor private final class QuickConnectAttempt {
         var task: Task<Void, Never>?
-    }
-
-    private static func jellyfinQuickConnectFailureCopy(for error: Error) -> String {
-        switch error {
-        case MediaProviderError.unauthorized:
-            String(localized: "Quick Connect is off on this server. Turn it on in the Jellyfin dashboard, under General.")
-        case MediaProviderError.notFound:
-            String(localized: "That code expired. Try again.")
-        default:
-            jellyfinFailureCopy(for: error)
-        }
-    }
-
-    static func jellyfinFailureCopy(for error: Error) -> String {
-        switch error {
-        case JellyfinSignInError.notJellyfin:
-            String(localized: "That address isn't a Jellyfin server. Check the port.")
-        case JellyfinSignInError.serverTooOld(let version):
-            String(localized: "This server runs Jellyfin \(version). Rivulet needs \(JellyfinSession.minimumVersion.major).\(JellyfinSession.minimumVersion.minor) or newer.")
-        case JellyfinSignInError.untrustedCertificate:
-            String(localized: "This server's HTTPS certificate isn't trusted. Try its http:// address.")
-        case MediaProviderError.unauthorized:
-            String(localized: "Jellyfin didn't accept that username and password.")
-        default:
-            String(localized: "Couldn't reach that server. Check the address and port.")
-        }
     }
 }

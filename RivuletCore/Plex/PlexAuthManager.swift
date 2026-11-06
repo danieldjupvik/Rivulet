@@ -78,6 +78,8 @@ class PlexAuthManager: ObservableObject {
     private let networkManager = PlexNetworkManager.shared
     private var pollingTask: Task<Void, Never>?
     private var serverSelectionTask: Task<Bool, Never>?
+    /// The server a synced sign-in prefers, used while that sign-in picks its first server.
+    private var syncedPreferredServerID: String?
     private let userDefaults = UserDefaults.standard
 
     // UserDefaults keys (non-sensitive data only)
@@ -152,18 +154,20 @@ class PlexAuthManager: ObservableObject {
         if authToken != nil {
             state = .authenticated
 
-            // Check if saved URL is a bad Docker/internal address that slipped through
+            // A saved loopback address can never reach the server: clear it for re-selection.
             if let url = selectedServerURL,
                let host = URL(string: url)?.host,
-               isDockerOrInternalAddress(host) {
-                DiagLog.notice(.connection, "Saved URL is a Docker/internal address, cleared for re-selection")
-                // Clear the bad URL - will trigger re-selection
+               Self.isLoopbackAddress(host) {
+                DiagLog.notice(.connection, "Saved URL is a loopback address, cleared for re-selection")
                 selectedServerURL = nil
                 userDefaults.removeObject(forKey: serverURLKey)
             }
 
+            // A remote URL may be one older builds picked because they dropped a reachable
+            // local address (#510), and it costs a LAN user their Home quality.
             if let url = selectedServerURL,
-               !Self.isPlayableDirectURL(url) || (Self.prefersSecureLocalConnections && url.hasPrefix("http://")) {
+               !Self.isPlayableDirectURL(url) || (Self.prefersSecureLocalConnections && url.hasPrefix("http://"))
+                || ServerLocation.classify(url) == .remote {
                 Task { await upgradeConnectionIfBetterExists(from: url) }
             }
         }
@@ -182,6 +186,7 @@ class PlexAuthManager: ObservableObject {
         guard let server,
               let best = await findBestConnection(for: server, reuseLastGood: false),
               Self.isPlayableDirectURL(best),
+              best != url,
               selectedServerURL == url else { return }
         DiagLog.notice(.connection, "Upgrading connection \(DiagLog.describe(url: url)) -> \(DiagLog.describe(url: best))")
         selectedServerURL = best
@@ -269,6 +274,7 @@ class PlexAuthManager: ObservableObject {
                 // conditional TabSection can latch to "empty" and not recover when
                 // libraries load asynchronously later.
                 await Self.onAuthenticated?()
+                CloudSync.shared.accountsChanged()
 
                 return true
             } else if selectedServerURL != nil {
@@ -314,11 +320,11 @@ class PlexAuthManager: ObservableObject {
         }
 
         let validConnections = (server.connections ?? [])
-            .filter { !isDockerOrInternalAddress($0.address) }
+            .filter { !Self.isLoopbackAddress($0.address) }
 
         // Sort by preference: local non-relay > remote > relay
         let sortedConnections = validConnections.sorted { conn1, conn2 in
-            connectionScore(conn1) > connectionScore(conn2)
+            Self.connectionScore(conn1) > Self.connectionScore(conn2)
         }
 
         // Build the prioritized probe chains. Index order IS the priority order,
@@ -475,7 +481,7 @@ class PlexAuthManager: ObservableObject {
     /// Priority for initial sorting: Local non-relay > Remote > Relay
     /// - Local prefers HTTP (fastest when secure connections not required)
     /// - For httpsRequired servers, plex.direct is tried first (valid TLS for playback)
-    private func connectionScore(_ connection: PlexConnection) -> Int {
+    nonisolated static func connectionScore(_ connection: PlexConnection) -> Int {
         var score = 0
 
         // Prefer non-relay (direct connections)
@@ -486,6 +492,7 @@ class PlexAuthManager: ObservableObject {
             score += 500
             // For local: prefer HTTP (avoids certificate issues), unless the host prefers TLS
             if (connection.protocolType == "http") != Self.prefersSecureLocalConnections { score += 50 }
+            if looksLikeDockerBridge(connection.address) { score -= 100 }
         } else {
             // For remote: prefer HTTPS (required by ATS)
             if connection.protocolType == "https" { score += 100 }
@@ -507,30 +514,15 @@ class PlexAuthManager: ObservableObject {
         return "https://\(ipWithDashes).\(subdomainHash).plex.direct:\(port)"
     }
 
-    /// Check if address is a Docker/internal bridge network
-    private func isDockerOrInternalAddress(_ address: String) -> Bool {
-        // Docker default bridge networks (172.17-31.x.x range)
-        // Note: We intentionally do NOT filter 10.x.x.x as these are common home network ranges
-        let dockerPrefixes = [
-            "172.17.", "172.18.", "172.19.", "172.20.", "172.21.",
-            "172.22.", "172.23.", "172.24.", "172.25.", "172.26.",
-            "172.27.", "172.28.", "172.29.", "172.30.", "172.31.",
-        ]
+    /// Loopback names the server's own machine, never a path from this device.
+    nonisolated static func isLoopbackAddress(_ address: String) -> Bool {
+        ["127.0.0.1", "localhost", "::1"].contains(address)
+    }
 
-        // Localhost variants (not useful for Apple TV)
-        let localhostAddresses = ["127.0.0.1", "localhost", "::1"]
-
-        for prefix in dockerPrefixes {
-            if address.hasPrefix(prefix) {
-                return true
-            }
-        }
-
-        if localhostAddresses.contains(address) {
-            return true
-        }
-
-        return false
+    /// Docker's default bridge range. It is also a normal LAN range (#510), so such an address is
+    /// probed like any other, only after the server's other local addresses.
+    nonisolated static func looksLikeDockerBridge(_ address: String) -> Bool {
+        (17...31).contains { address.hasPrefix("172.\($0).") }
     }
 
     /// Whether playback can use this URL directly: not relay, and not HTTPS
@@ -693,14 +685,18 @@ class PlexAuthManager: ObservableObject {
         return nil
     }
 
-    /// Sign out and clear credentials
-    func signOut() {
+    /// Sign out and clear credentials. With iCloud Sync the token is shared, so revoking it signs
+    /// every device out: only `.everywhere` does. A caller that does not ask gets this device only.
+    func signOut(scope: SignOutScope? = nil) {
+        let scope = scope ?? .thisDevice
+        let shared = CloudSync.shared.wasShared(accountID: Self.syncID)
+        let identity = syncAccountUserID.map(String.init)
         DiagLog.notice(.auth, "Signed out of Plex")
         pollingTask?.cancel()
         pollingTask = nil
 
         // A token left valid at plex.tv would outlive the sign-out.
-        if let token = authToken {
+        if let token = authToken, scope.revokesToken(everShared: shared) {
             Task { await networkManager.revokeToken(token) }
         }
         authToken = nil
@@ -742,6 +738,42 @@ class PlexAuthManager: ObservableObject {
         Self.onSignedOut?()
 
         state = .idle
+        if scope != .syncedRemoval { CloudSync.shared.signedOut(accountID: Self.syncID, identity: identity, scope: scope) }
+    }
+
+    /// The vault entry id for the one Plex account.
+    static let syncID = "plex"
+
+    /// The plex.tv account id, which says whose account a synced token is.
+    var syncAccountUserID: Int? { userDefaults.object(forKey: accountUserIDKey) as? Int }
+
+    /// Signs in with a token another device holds. Goes through the normal sign-in path, which sets the
+    /// fresh-install sentinel; writing the token straight to the Keychain would be wiped on the next launch.
+    /// False without touching anything when the token is not accepted or a sign-in already exists.
+    func adoptSyncedSession(token: String, preferredServerMachineID: String?) async -> AdoptOutcome {
+        guard authToken == nil else { return .refused }
+        switch await tokenCheck(token) {
+        case .adopted: break
+        case let other: return other
+        }
+        syncedPreferredServerID = preferredServerMachineID
+        await handleSuccessfulAuth(token: token)
+        syncedPreferredServerID = nil
+        return authToken != nil ? .adopted : .unavailable
+    }
+
+    /// `.adopted` here means "the token works".
+    private func tokenCheck(_ token: String) async -> AdoptOutcome {
+        let url = URL(string: "https://plex.tv/api/v2/user")!
+        let headers = ["X-Plex-Token": token, "X-Plex-Client-Identifier": PlexAPI.clientIdentifier, "Accept": "application/json"]
+        do {
+            _ = try await networkManager.requestData(url, headers: headers)
+            return .adopted
+        } catch PlexAPIError.httpError(let status, _) where status == 401 || status == 403 {
+            return .refused
+        } catch {
+            return .unavailable
+        }
     }
 
     /// Reset error state
@@ -1071,6 +1103,7 @@ class PlexAuthManager: ObservableObject {
 
         // Fetch available servers
         await resumeServerSelection()
+        CloudSync.shared.accountsChanged()
     }
 
     /// Fetches the account's servers and enters selection (or auto-selects a
@@ -1084,6 +1117,8 @@ class PlexAuthManager: ObservableObject {
             if servers.isEmpty {
                 state = .error(message: String(localized: "No Plex servers found on your account"))
                 scheduleErrorDismissal()
+            } else if let wanted = syncedPreferredServerID, let preferred = servers.first(where: { $0.machineIdentifier == wanted }) {
+                await selectServer(preferred)
             } else if servers.count == 1 {
                 // Auto-select if only one server - await to ensure connection is established
                 await selectServer(servers[0])
@@ -1153,16 +1188,23 @@ class PlexAuthManager: ObservableObject {
     }
 }
 
-// MARK: - Auth URL Helper
+// MARK: - Link page URL
 
 extension PlexAuthManager {
-    /// Get the URL for users to authenticate via browser
-    var authURL: URL? {
-        guard case .waitingForPIN(let code, _) = state else { return nil }
+    /// The plex.tv/link page with the PIN filled in, so the user only signs in
+    /// and confirms. It is the URL Plex's own `qr` image for a PIN encodes, and
+    /// the page the developer docs name for a short PIN (`strong` unset, as
+    /// `requestPin` sends); `app.plex.tv/auth#?code=` is the strong-PIN form.
+    nonisolated static func linkURL(code: String) -> URL {
+        var components = URLComponents(string: "https://www.plex.tv/link/")!
+        components.queryItems = [URLQueryItem(name: "pin", value: code)]
+        return components.url!
+    }
 
-        var components = URLComponents(string: "https://app.plex.tv/auth")!
-        components.fragment = "?clientID=\(PlexAPI.clientIdentifier)&code=\(code)&context[device][product]=Rivulet"
-        return components.url
+    /// `linkURL(code:)` for the PIN being waited on.
+    var linkURL: URL? {
+        guard case .waitingForPIN(let code, _) = state else { return nil }
+        return Self.linkURL(code: code)
     }
 }
 
