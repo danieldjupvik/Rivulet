@@ -405,45 +405,24 @@ enum InfoPopupContent {
         row.axis = .horizontal
         row.alignment = .center
         row.spacing = 10
+        let metadataColor = UIColor.white.withAlphaComponent(0.8)
+        let metadataFont = UIFont.systemFont(ofSize: 20, weight: .semibold)
         var parts: [String] = []
         if let y = detail.item.year { parts.append("\(y)") }
         if let rt = detail.item.runtime, rt > 0 { parts.append(runtimeString(rt)) }
         if let r = detail.contentRating, !r.isEmpty { parts.append(r) }
         if !parts.isEmpty {
-            row.addArrangedSubview(label(parts.joined(separator: "  ·  "), size: 20, weight: .semibold, color: .white.withAlphaComponent(0.7), lines: 1))
+            row.addArrangedSubview(label(parts.joined(separator: "  ·  "), size: metadataFont.pointSize,
+                                        weight: .semibold, color: metadataColor, lines: 1))
         }
-        let source = detail.primarySource
-        var badges = source?.qualityBadges() ?? []
-        if source?.subtitleTracks.contains(where: { $0.isHearingImpaired }) ?? false { badges.append("SDH") }
-        if source?.audioTracks.contains(where: { ($0.title ?? $0.extendedTitle ?? "").localizedCaseInsensitiveContains("descri") }) ?? false { badges.append("AD") }
-        for raw in badges {
-            let text = raw.replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-            if !text.isEmpty { row.addArrangedSubview(badgeLabel(text)) }
+        for text in detail.primarySource?.detailBadges() ?? [] {
+            row.addArrangedSubview(MetadataBadgeView(text, relativeTo: metadataFont,
+                                                    color: metadataColor, filled: text == "4K"))
         }
         let spacer = UIView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(spacer)
         return row
-    }
-
-    private static func badgeLabel(_ text: String) -> UIView {
-        let l = UILabel()
-        l.text = text
-        l.font = .systemFont(ofSize: 16, weight: .semibold)
-        l.textColor = .white.withAlphaComponent(0.9)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        let container = UIView()
-        container.layer.borderWidth = 1
-        container.layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
-        container.layer.cornerRadius = 4
-        container.addSubview(l)
-        NSLayoutConstraint.activate([
-            l.topAnchor.constraint(equalTo: container.topAnchor, constant: 3),
-            l.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -3),
-            l.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 7),
-            l.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -7),
-        ])
-        return container
     }
 
     /// "English (Dolby Atmos, Dolby 5.1, AAC, AD), French (Canada) (…)" — group

@@ -152,7 +152,7 @@ final class MediaDetailChromeView: UIView {
         let s = UIStackView()
         s.translatesAutoresizingMaskIntoConstraints = false
         s.axis = .horizontal
-        s.spacing = 6
+        s.spacing = 12
         s.alignment = .center
         return s
     }()
@@ -907,7 +907,7 @@ final class MediaDetailChromeView: UIView {
     }
 
     /// Apple dims the whole metadata row, text and badges alike.
-    private static let qualityRowAlpha: CGFloat = 0.75
+    private static let qualityRowAlpha: CGFloat = 0.8
 
     private func rebuildQualityRow(item: MediaItem, detail: MediaItemDetail?) {
         qualityRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -935,7 +935,7 @@ final class MediaDetailChromeView: UIView {
         }
 
         for badge in Self.calmBadges(detail?.primarySource) {
-            qualityRow.addArrangedSubview(Self.makeBadge(badge, alpha: Self.qualityRowAlpha))
+            qualityRow.addArrangedSubview(Self.makeBadge(badge, alpha: Self.qualityRowAlpha, filled: badge == "4K"))
         }
     }
 
@@ -1172,27 +1172,8 @@ final class MediaDetailChromeView: UIView {
         return l
     }
 
-    /// Bordered rating / quality badge, 22pt tall in total (Apple's badge cap).
-    static func makeBadge(_ text: String, alpha: CGFloat) -> UIView {
-        let label = UILabel()
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = text
-        label.font = .systemFont(ofSize: 15, weight: .bold)
-        label.textColor = UIColor.white.withAlphaComponent(alpha)
-        let container = UIView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer.borderWidth = 1
-        container.layer.borderColor = UIColor.white.withAlphaComponent(alpha * 0.7).cgColor
-        container.layer.cornerRadius = 4
-        container.layer.cornerCurve = .continuous
-        container.addSubview(label)
-        NSLayoutConstraint.activate([
-            container.heightAnchor.constraint(equalToConstant: 22),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 6),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -6),
-            label.centerYAnchor.constraint(equalTo: container.centerYAnchor)
-        ])
-        return container
+    static func makeBadge(_ text: String, alpha: CGFloat, filled: Bool = false) -> UIView {
+        MetadataBadgeView(text, relativeTo: captionFont, color: .white.withAlphaComponent(alpha), filled: filled)
     }
 }
 

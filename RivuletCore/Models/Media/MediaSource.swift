@@ -43,6 +43,11 @@ extension MediaSource {
         ([resolutionBadge] + rangeBadges + [audioBadge]).compactMap { $0 }
     }
 
+    func detailBadges() -> [String] {
+        MediaCapabilityBadges.detailed(
+            qualityBadges: qualityBadges(), audioTracks: audioTracks, subtitleTracks: subtitleTracks)
+    }
+
     var resolutionBadge: String? { videoTracks.first.flatMap(resolutionLabel) }
 
     /// Range badges; a Dolby Vision file that also carries HDR10+ gets both (#371).
