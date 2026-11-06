@@ -4907,6 +4907,16 @@
         }
       }
     },
+    "Dolby Vision FEL" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dolby Vision FEL"
+          }
+        }
+      }
+    },
     "Dolby Vision, TV not confirmed" : {
       "localizations" : {
         "de" : {
@@ -5015,6 +5025,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ναρκωτικά, αλκοόλ και κάπνισμα"
+          }
+        }
+      }
+    },
+    "Dual Layer (FEL)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwei Ebenen (FEL)"
           }
         }
       }
@@ -5329,6 +5349,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Περισσότερη βελτίωση"
+          }
+        }
+      }
+    },
+    "Enhancement Layer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erweiterungsebene"
           }
         }
       }
@@ -6464,6 +6494,16 @@
         }
       }
     },
+    "Full (FEL)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vollständig (FEL)"
+          }
+        }
+      }
+    },
     "Full Screen" : {
       "localizations" : {
         "de" : {
@@ -6823,6 +6863,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ύψος"
+          }
+        }
+      }
+    },
+    "Height Speakers" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Höhenlautsprecher"
           }
         }
       }
@@ -7532,6 +7582,16 @@
         }
       }
     },
+    "Keeps the height channels of object-based soundtracks, lossless over HDMI. Off plays 7.1 without them. Some soundtracks need 7.1.4 or 9.1.6." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behält die Höhenkanäle objektbasierter Tonspuren bei, verlustfrei über HDMI. Bei „Aus“ wird 7.1 ohne sie wiedergegeben. Manche Tonspuren benötigen 7.1.4 oder 9.1.6."
+          }
+        }
+      }
+    },
     "Kids" : {
       "localizations" : {
         "de" : {
@@ -8098,6 +8158,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Από ήπια και πάνω"
+          }
+        }
+      }
+    },
+    "Minimal (MEL)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minimal (MEL)"
           }
         }
       }
@@ -9996,6 +10066,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Λίστες αναπαραγωγής"
+          }
+        }
+      }
+    },
+    "Plays the full Dolby Vision Profile 7 layer on a Dolby Vision TV, without AirPlay or Picture in Picture. Off plays it as 8.1." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gibt die vollständige Ebene von Dolby Vision Profil 7 auf einem Dolby-Vision-Fernseher wieder, ohne AirPlay oder Bild-in-Bild. Bei „Aus“ wird Profil 7 als 8.1 wiedergegeben."
           }
         }
       }
