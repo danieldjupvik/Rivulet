@@ -62,6 +62,7 @@ final class PreviewCarouselViewController: UIViewController {
     /// A long swipe from a lower row walks focus up to it mid-gesture, and must not
     /// then also collapse the details when the swipe completes.
     private var touchBeganOnDetailsTopRow = false
+    private var touchBeganOnSeasonPills = false
 
     // MARK: - Subviews
 
@@ -778,6 +779,8 @@ final class PreviewCarouselViewController: UIViewController {
             case .downArrow:
                 if handleDownNavigation() { return }
             case .upArrow:
+                if state.phase == .detailsStable, expandedDetail.focusIsOnPills,
+                   !(press.responder is SeasonPillView) { return }
                 if handleUpNavigation() { return }
             default:
                 break
@@ -829,7 +832,7 @@ final class PreviewCarouselViewController: UIViewController {
                 if expandedDetail.episodeThumbJustTookFocus
                     || expandedDetail.episodesJustTookFocus { return true }
                 if expandedDetail.hasSeasonPills {
-                    // The pills are unfocusable from here; the target enables them.
+                    // Fallback when the focus engine did not enter the selected pill through its guide.
                     expandedDetail.detailsFocusTarget = .pills
                     setNeedsFocusUpdate(); updateFocusIfNeeded()
                 } else {
@@ -1059,11 +1062,11 @@ final class PreviewCarouselViewController: UIViewController {
         case .down:
             if state.isCarouselInputEnabled { return true }
             if state.phase == .expandedHero { return true }
-            if state.phase == .detailsStable, expandedDetail.focusIsOnPills { return true }
             return false
         case .up:
             if state.phase == .expandedHero { return true }
             if state.phase == .detailsStable {
+                if expandedDetail.hasSeasonPills { return touchBeganOnSeasonPills && expandedDetail.focusIsOnPills }
                 return touchBeganOnDetailsTopRow
                     && (expandedDetail.focusIsOnPills || expandedDetail.focusIsOnEpisodes)
             }
@@ -1477,6 +1480,7 @@ extension PreviewCarouselViewController: UIGestureRecognizerDelegate {
     /// handler. Vertical: `verticalSwipeWouldNavigate`. Horizontal: only while the carousel owns input.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === verticalSwipeRecognizers.first {
+            touchBeganOnSeasonPills = state.phase == .detailsStable && expandedDetail.focusIsOnPills
             touchBeganOnDetailsTopRow = state.phase == .detailsStable
                 && (expandedDetail.focusIsOnPills || expandedDetail.focusIsOnEpisodes)
         }
