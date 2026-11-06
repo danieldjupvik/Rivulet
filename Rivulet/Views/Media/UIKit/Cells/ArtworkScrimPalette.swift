@@ -73,9 +73,7 @@ enum ArtworkScrimPalette {
         guard let fine = representativeColor(buckets.prefix(512)),
               let coarse = representativeColor(buckets.suffix(64)) else { return nil }
         let color = (fine + coarse) / 2
-        return UIColor(red: (color.x * 0.3665 + 26.395) / 255,
-                       green: (color.y * 0.3665 + 26.395) / 255,
-                       blue: (color.z * 0.3665 + 26.395) / 255, alpha: 1)
+        return UIColor(red: color.x / 255, green: color.y / 255, blue: color.z / 255, alpha: 1)
     }
 
     private nonisolated static func representativeColor(_ buckets: ArraySlice<ColorBucket>) -> SIMD3<Double>? {
