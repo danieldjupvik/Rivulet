@@ -36,8 +36,6 @@ final class HeroButtonRowView: UIView {
 
     var canRetreat = false
     private var previousPageGesture: Int?
-    private var nextButtonFocusGesture: Int?
-    private var playButtonFocusGesture: Int?
 
     var isOnWatchlist: Bool = false {
         didSet {
@@ -131,7 +129,7 @@ final class HeroButtonRowView: UIView {
             gatedSwipesOn: self, directions: [.left, .right],
             shouldHandle: { [weak self] direction in
                 guard let self else { return false }
-                return direction == .left ? self.playButton.isFocused && self.canRetreat : self.pagesOnRight
+                return direction == .left ? self.pagesOnLeft : self.pagesOnRight
             },
             onSwipe: { [weak self] direction in
                 guard let self else { return }
@@ -171,28 +169,44 @@ final class HeroButtonRowView: UIView {
             stack.layer.removeAnimation(forKey: "heroPagingOpacity")
             return
         }
-        // Animate presentation opacity only; UIKit still sees the mounted focus targets at full alpha.
+        // Presentation opacity only: UIKit still sees the focus targets at full alpha.
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = stack.layer.presentation()?.opacity ?? 1
         fade.toValue = visible ? 1 : 0
-        fade.duration = visible ? HeroPageMotion.metadataFade : 0.12
+        fade.duration = visible ? HeroPageMotion.metadataFade : HeroPageMotion.outgoingFade
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         fade.fillMode = .forwards
         fade.isRemovedOnCompletion = false
         stack.layer.add(fade, forKey: "heroPagingOpacity")
     }
 
+    /// The engine moves focus before the press or swipe reaches us, so the arrow
+    /// that landed on Play or Next must not also page. Only a later gesture does.
+    private var arrivalGesture: Int?
+    private var arrivedThisGesture: Bool { arrivalGesture == MenuPressInterceptor.remoteGestures.count }
+
+    override func didUpdateFocus(in context: UIFocusUpdateContext,
+                                 with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        if let next = context.nextFocusedItem, next === playButton || next === nextButton,
+           next !== context.previouslyFocusedItem {
+            arrivalGesture = MenuPressInterceptor.remoteGestures.count
+        }
+    }
+
+    /// Left from Play while earlier items exist, or in the gesture that arrived or paged, never
+    /// reaches the sidebar. At the first item a fresh gesture falls through and opens it.
     override func shouldUpdateFocus(in context: UIFocusUpdateContext) -> Bool {
-        // A gesture that lands on Play stops there; subsequent gestures can page or open the sidebar.
         if context.previouslyFocusedItem === playButton, context.focusHeading == .left,
-           canRetreat || previousPageGesture == MenuPressInterceptor.remoteGestures.count
-            || playButtonFocusGesture == MenuPressInterceptor.remoteGestures.count { return false }
+           canRetreat || arrivedThisGesture || previousPageGesture == MenuPressInterceptor.remoteGestures.count {
+            return false
+        }
         return super.shouldUpdateFocus(in: context)
     }
 
+    /// Pages back once per gesture; the rest of that gesture is consumed, even at the first item.
     func consumeBackwardPaging(from item: (any UIFocusItem)?, heading: UIFocusHeading, gesture: Int) -> Bool {
         guard item === playButton, heading == .left else { return false }
-        // Consume the rest of a paging swipe, including after it reaches the first item.
         if previousPageGesture == gesture { return true }
         guard canRetreat else { return false }
         previousPageGesture = gesture
@@ -200,30 +214,17 @@ final class HeroButtonRowView: UIView {
         return true
     }
 
-    override func didUpdateFocus(in context: UIFocusUpdateContext,
-                                 with coordinator: UIFocusAnimationCoordinator) {
-        super.didUpdateFocus(in: context, with: coordinator)
-        if context.nextFocusedItem === nextButton, context.previouslyFocusedItem !== nextButton {
-            nextButtonFocusGesture = MenuPressInterceptor.remoteGestures.count
-        }
-        if context.nextFocusedItem === playButton, context.previouslyFocusedItem !== playButton {
-            playButtonFocusGesture = MenuPressInterceptor.remoteGestures.count
-        }
-    }
+    private var pagesOnLeft: Bool { playButton.isFocused && canRetreat && !arrivedThisGesture }
 
     /// Next is the last button, so the engine has no Right move from it to make.
-    private var pagesOnRight: Bool { nextButton.isFocused && !nextButton.isHidden }
+    private var pagesOnRight: Bool { nextButton.isFocused && !nextButton.isHidden && !arrivedThisGesture }
 
-    // A Right the engine declined (nothing past Next) reaches here; focus stays on Next.
+    // A Left or Right the engine declined (nothing to move to) reaches here; focus stays put.
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-        if playButton.isFocused,
-           playButtonFocusGesture != MenuPressInterceptor.remoteGestures.count,
-           presses.contains(where: { $0.type == .leftArrow }),
+        if pagesOnLeft, presses.contains(where: { $0.type == .leftArrow }),
            consumeBackwardPaging(from: playButton, heading: .left,
                                  gesture: MenuPressInterceptor.remoteGestures.count) { return }
-        if pagesOnRight,
-           nextButtonFocusGesture != MenuPressInterceptor.remoteGestures.count,
-           presses.contains(where: { $0.type == .rightArrow }) {
+        if pagesOnRight, presses.contains(where: { $0.type == .rightArrow }) {
             onNext?()
             return
         }

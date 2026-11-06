@@ -104,6 +104,7 @@ final class PreviewCarouselViewController: UIViewController {
     }
 
     private func teardown() {
+        backdropPlane.stopThemeVideo()
         onTeardown?()
         onTeardown = nil
     }
@@ -449,6 +450,7 @@ final class PreviewCarouselViewController: UIViewController {
         morphController.expandInstantly(centeredIndex: selectedIndex, in: view.bounds, cell: cell) { [weak self] in
             guard let self else { return }
             self.state.finishExpand()
+            self.backdropPlane.playThemeVideo(at: self.selectedIndex, host: self)
             self.expandedDetail.revealBelowFoldCollection()
             self.setNeedsFocusUpdate()
         }
@@ -471,6 +473,7 @@ final class PreviewCarouselViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if isExpanded { backdropPlane.playThemeVideo(at: selectedIndex, host: self) }
         // Focus, not first responder, is what routes presses here on tvOS.
         becomeFirstResponder()
         // Re-arm a shelf row (Related) on its tile before the update resolves:
@@ -723,6 +726,7 @@ final class PreviewCarouselViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        backdropPlane.stopThemeVideo()
         previewCarouselLog.info("[Lifecycle] viewWillDisappear isExpanded=\(self.isExpanded) presentingVC=\(self.presentingViewController != nil)")
     }
 
@@ -1266,6 +1270,7 @@ final class PreviewCarouselViewController: UIViewController {
         morphController.expand(centeredIndex: selectedIndex, in: view.bounds, cell: cell) { [weak self] in
             guard let self else { return }
             self.state.finishExpand()
+            self.backdropPlane.playThemeVideo(at: self.selectedIndex, host: self)
             // Reveal the real focus-driven below-fold (post-morph, §6).
             self.expandedDetail.revealBelowFoldCollection()
             self.setNeedsFocusUpdate()
@@ -1348,6 +1353,7 @@ final class PreviewCarouselViewController: UIViewController {
     /// Reverse of `expandCurrentCard`, on the same curve.
     private func collapseExpandedCard() {
         guard isExpanded else { return }
+        backdropPlane.stopThemeVideo()
         previewCarouselLog.info("[Collapse] BEGIN idx=\(self.selectedIndex)")
 
         isExpanded = false
@@ -1372,6 +1378,7 @@ final class PreviewCarouselViewController: UIViewController {
         guard state.phase != .exiting else { return }
         // The exit flight starts from settled geometry: not mid-page, not mid-collapse.
         guard pagingAnimation == nil, !morphController.isAnimating else { return }
+        backdropPlane.stopThemeVideo()
         state.beginExit()
         onPrepareDismiss(dismissSourceTarget)
         // Fly only when the centred card has a tile on screen to land on.
