@@ -13,8 +13,8 @@
 		A7F159552F04124A001B2177 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A7F159542F04124A001B2177 /* Sentry */; };
 		B2000001AAAA000000000001 /* AetherEngine in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000001 /* AetherEngine */; };
 		B2000001AAAA000000000002 /* Libass in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000002 /* Libass */; };
-		B2000001AAAA000000000004 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000004 /* SwiftDraw */; };
 		B2000001AAAA000000000003 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000003 /* FluidAudio */; };
+		B2000001AAAA000000000004 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000004 /* SwiftDraw */; };
 		B30000190000000000000019 /* AetherEngine in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000001 /* AetherEngine */; };
 		B30000210000000000000021 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A7F159542F04124A001B2177 /* Sentry */; };
 		B30000220000000000000022 /* SwiftDraw in Frameworks */ = {isa = PBXBuildFile; productRef = B2000010AAAA000000000004 /* SwiftDraw */; };
