@@ -20,10 +20,12 @@ final class ExpandedDetailContainerView: UIView {
     /// Tuning constant, dialed on-device.
     static let detailsRest: CGFloat = 420
 
-    var scrollProgress: CGFloat { min(1, max(0, scrollOffset / Self.reserveDistance)) }
-    // Logo fades in mid-slide (off 300→550), after the carousel metadata has
-    // cleared (~off 230), so they don't overlap.
-    private var belowFoldTitleOpacity: CGFloat { min(1, max(0, (scrollOffset - 300) / 250)) }
+    var scrollProgress: CGFloat {
+        let distance = max(1, belowFoldCollection.detailsRestOff)
+        return min(1, max(0, 1.005 * scrollOffset / distance - 0.0025))
+    }
+    var heroTravelDistance: CGFloat { max(0, bounds.height - Self.smallLogoTop) }
+    private var belowFoldTitleOpacity: CGFloat { max(0, 2 * scrollProgress - 1) }
 
     /// Called each `apply()` so the VC can drive the layers it owns (blur + chrome).
     var onScrollProgress: ((CGFloat) -> Void)?
@@ -403,12 +405,14 @@ final class ExpandedDetailContainerView: UIView {
     private func applyHeroProgress(fromOffset off: CGFloat) {
         scrollOffset = off
         smallTitleLogo.alpha = belowFoldTitleOpacity
-        seasonsHeader.alpha = scrollProgress
+        seasonsHeader.alpha = belowFoldTitleOpacity
         // The logo and pills ride the rail's offset past its details rest, inside the scroll animation.
         let dy = belowFoldCollection.detailsRestOff - off
-        let scroll = CGAffineTransform(translationX: 0, y: dy)
+        let titleY = dy > 0 ? dy * heroTravelDistance / max(1, belowFoldCollection.detailsRestOff) : dy
+        let scroll = CGAffineTransform(translationX: 0, y: titleY)
         seasonsHeader.transform = scroll
         smallTitleLogo.transform = scroll
+        belowFoldCollection.setLowerRowsOffset(titleY - dy)
         onScrollProgress?(scrollProgress)
     }
 

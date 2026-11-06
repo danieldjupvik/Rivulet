@@ -89,16 +89,10 @@ final class PreviewCarouselViewController: UIViewController {
     /// ends; reports `onScrollProgress` so the VC fades the blur and the cell chrome.
     private let expandedDetail = ExpandedDetailContainerView()
 
-    /// Blur under the chrome, scrubbed by a paused animator's `fractionComplete`.
-    /// Not by alpha: alpha on an effect view artifacts.
-    private let blurOverlay = UIVisualEffectView(effect: nil)
-    /// Paused animator whose `fractionComplete` is the blur intensity; built on first arm.
-    private var blurAnimator: UIViewPropertyAnimator?
+    private let blurOverlay = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+    private let sharpBackdrop = UIImageView()
 
     deinit {
-        // A property animator released while .active throws. `blurAnimator` stays
-        // paused (.active) for the VC's life, so stop it or dismiss aborts the app.
-        if blurAnimator?.state == .active { blurAnimator?.stopAnimation(true) }
         onTeardown?()
     }
 
@@ -210,6 +204,16 @@ final class PreviewCarouselViewController: UIViewController {
             blurOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             blurOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             blurOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        sharpBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        sharpBackdrop.contentMode = .scaleAspectFill
+        sharpBackdrop.clipsToBounds = true
+        blurOverlay.contentView.addSubview(sharpBackdrop)
+        NSLayoutConstraint.activate([
+            sharpBackdrop.topAnchor.constraint(equalTo: blurOverlay.contentView.topAnchor),
+            sharpBackdrop.leadingAnchor.constraint(equalTo: blurOverlay.contentView.leadingAnchor),
+            sharpBackdrop.trailingAnchor.constraint(equalTo: blurOverlay.contentView.trailingAnchor),
+            sharpBackdrop.bottomAnchor.constraint(equalTo: blurOverlay.contentView.bottomAnchor)
         ])
 
         layout.itemCount = items.count
@@ -1269,16 +1273,14 @@ final class PreviewCarouselViewController: UIViewController {
         }
     }
 
-    /// Down from the expanded hero: slides into the below-fold details, then hands focus in.
+    /// Down from the expanded hero: hands focus in once the thumbnail is visible, while the slide settles.
     private func enterBelowFold() {
         guard state.phase == .expandedHero else { return }
         state.markDetailsStable()
         // Always enter on the episodes, never stale on the pills.
         expandedDetail.detailsFocusTarget = .episodes
         expandedDetail.setBelowFoldScrollActive(true)
-        // Focusable only after the slide: the engine's own scroll fights it and
-        // overshoots to Cast.
-        expandedDetail.belowFoldCollection.slideToDetailsTop(animated: true) { [weak self] in
+        expandedDetail.belowFoldCollection.slideToDetailsTop(animated: true, onReadyForFocus: { [weak self] in
             guard let self else { return }
             self.expandedDetail.setBelowFoldInteractive(true)
             // Lay out first: a preferred index path whose cell is not realized
@@ -1289,7 +1291,7 @@ final class PreviewCarouselViewController: UIViewController {
             // So Up from the primary row cannot escape into the faded chrome buttons.
             (self.collectionView.cellForItem(at: IndexPath(item: self.selectedIndex, section: 0)) as? PreviewCardView)?
                 .setChromeActionRowFocusable(false)
-        }
+        })
     }
 
     /// Up from the top of the below-fold: focus back to the hero, collection back to its peek.
@@ -1311,35 +1313,18 @@ final class PreviewCarouselViewController: UIViewController {
         }
     }
 
-    // MARK: - Hero layer choreography (backdrop blur + metadata fade)
+    // MARK: - Hero layer choreography
 
-    /// Drive the VC-owned hero layers from below-fold scroll progress (0→1):
-    /// blur the backdrop in and fade the hero metadata (cell chrome) out.
     private func driveHeroLayers(_ progress: CGFloat) {
         let p = max(0, min(1, progress))
-        blurOverlay.isHidden = p <= 0.01
-        blurAnimatorIfNeeded().fractionComplete = min(0.999, max(0.001, p))
-
-        // Metadata is gone by p ≈ 0.4, before the top logo starts fading in.
-        let chromeAlpha = 1 - min(1, p * 2.6)
+        blurOverlay.isHidden = p == 0
+        let image = backdropPlane.image(for: selectedIndex)
+        if sharpBackdrop.image !== image { sharpBackdrop.image = image }
+        sharpBackdrop.alpha = 1 - p
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        let offset = reduceMotion ? 0 : -p * expandedDetail.heroTravelDistance
         (collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? PreviewCardView)?
-            .setHeroChromeAlpha(chromeAlpha)
-    }
-
-    /// Lazily build the paused blur animator. `fractionComplete` is the blur
-    /// intensity (Apple's way to scrub a UIVisualEffectView — not alpha).
-    private func blurAnimatorIfNeeded() -> UIViewPropertyAnimator {
-        if let a = blurAnimator { return a }
-        let a = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
-            // Pinned dark like Apple's detail backdrop: `.regular` follows
-            // the system appearance and turns into a white frost under Light.
-            self?.blurOverlay.effect = UIBlurEffect(style: .dark)
-        }
-        a.pausesOnCompletion = true
-        a.startAnimation()
-        a.pauseAnimation()
-        blurAnimator = a
-        return a
+            .setHeroChromeAlpha(reduceMotion ? 1 - p : 1, offset: offset)
     }
 
     /// Reverse of `expandCurrentCard`, on the same curve.

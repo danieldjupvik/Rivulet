@@ -17,6 +17,7 @@ final class FocusScrollControlledCollectionView: UICollectionView {
     /// Fires on every focus change — the newly-focused index path, or nil when
     /// focus leaves the collection. Used to track which episode/season is current.
     var onFocusedIndexPath: ((IndexPath?) -> Void)?
+    var onFocusScrollRequest: ((CGFloat) -> Bool)?
 
     /// Focus is on the top section, the only one Up lifts to the pills from.
     private(set) var focusedCellIsTopSection = false {
@@ -67,6 +68,7 @@ final class FocusScrollControlledCollectionView: UICollectionView {
         if let cellIndexPath { lastFocusedIndexPath = cellIndexPath }
         let targetY = isTop ? (frame.minY - topBand) : (frame.midY - bounds.height / 2)
         let clamped = max(minY, min(targetY, maxY))
+        if onFocusScrollRequest?(clamped) == true { return }
         animateOffset(to: clamped)
     }
 

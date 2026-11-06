@@ -24,6 +24,52 @@ final class BelowFoldRailScrollTests: XCTestCase {
     /// without the scroller clamping at the end of the rail.
     private let episodesPerSeason = 8
 
+    func test_detailSlideCompletesAndReturnsToHero() throws {
+        let stub = StubMediaProvider()
+        stub.episodesByShow["show"] = [item("episode", .episode, parent: "season", season: 1, episode: 1)]
+        MediaProviderRegistry.shared.register(stub)
+        defer { MediaProviderRegistry.shared.unregister(providerID: stub.id) }
+
+        let window = UIWindow(frame: screen)
+        let view = BelowFoldCollectionView(frame: screen)
+        window.addSubview(view)
+        window.isHidden = false
+        defer { window.isHidden = true }
+
+        let loaded = expectation(description: "episode applied")
+        view.onEpisodesApplied = { loaded.fulfill() }
+        view.configureEpisodesOnly(item: item("show", .show, parent: nil))
+        wait(for: [loaded], timeout: 3)
+        view.layoutIfNeeded()
+        view.resetScroll()
+        let collection = try XCTUnwrap(view.subviews.compactMap { $0 as? FocusScrollControlledCollectionView }.first)
+        let heroOffset = collection.contentOffset.y
+
+        let ready = expectation(description: "thumbnail becomes ready for focus")
+        ready.assertForOverFulfill = true
+        var focusOffset: CGFloat?
+        let entered = expectation(description: "detail slide completes")
+        view.slideToDetailsTop(animated: true, onReadyForFocus: {
+            focusOffset = collection.contentOffset.y
+            if !UIAccessibility.isReduceMotionEnabled {
+                XCTAssertEqual(collection.onFocusScrollRequest?(view.detailsRestOff + heroOffset), true,
+                               "focus entry must not start a competing scroll")
+            }
+            ready.fulfill()
+        }, completion: { entered.fulfill() })
+        wait(for: [ready, entered], timeout: 3, enforceOrder: true)
+        XCTAssertGreaterThan(collection.contentOffset.y, heroOffset)
+        if !UIAccessibility.isReduceMotionEnabled {
+            XCTAssertLessThan(try XCTUnwrap(focusOffset), collection.contentOffset.y - 100,
+                              "focus must be offered during the slide, before its settling tail")
+        }
+
+        let returned = expectation(description: "hero slide completes")
+        view.slideToHeroRest(animated: true) { returned.fulfill() }
+        wait(for: [returned], timeout: 3)
+        XCTAssertEqual(collection.contentOffset.y, heroOffset, accuracy: 0.5)
+    }
+
     func test_switchingSeasonScrollsTheRailToItsFirstEpisode() throws {
         let stub = StubMediaProvider()
         stub.childrenByParent["show"] = [item("s1", .season, parent: "show"), item("s2", .season, parent: "show")]
