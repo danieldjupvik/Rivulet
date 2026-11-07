@@ -5,8 +5,8 @@ import SwiftUI
 
 /// Tab bar on iPhone, sidebar on iPad (with each video library listed under Library).
 struct IOSRootView: View {
-    @EnvironmentObject private var plex: IOSPlexSession
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var plex: PlexSession
+    @EnvironmentObject private var browse: BrowseStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @SceneStorage("iosSelectedTab") private var selectedTab = "home"
@@ -51,7 +51,8 @@ struct IOSRootView: View {
                     }
                     .defaultVisibility(.hidden, for: .tabBar)
                 }
-                ForEach(showsSidebarLibraries ? videoLibraries : []) { library in
+                // Not by `id`: that is the server's own section number, so two servers collide and UIKit's sidebar throws.
+                ForEach(showsSidebarLibraries ? videoLibraries : [], id: \.self) { library in
                     Tab(browse.labels.title(library.title, providerID: library.providerID), systemImage: library.icon,
                         value: libraryTab(library)) {
                         sidebarStack(libraryTab(library)) { IOSPlexLibraryView(library: library, showsAccount: true) }
@@ -78,7 +79,7 @@ struct IOSRootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .environment(\.openAccount) { showingAccount = true }
         .environment(\.openDownloads, openDownloads)
-        .sheet(isPresented: $showingAccount) { IOSAccountView() }
+        .sheet(isPresented: $showingAccount) { IOSAccountView().iosSessionObjects(plex) }
         .sheet(isPresented: $showingWhatsNew) { IOSWhatsNewSheet(version: IOSChangelog.currentVersion) }
         .sheet(isPresented: $choosingProfile) { IOSProfilePickerSheet() }
         // Content is withheld until a profile is entered: ask who is watching,
@@ -290,7 +291,7 @@ struct IOSRootView: View {
 }
 
 #Preview {
-    let session = IOSPlexSession()
+    let session = PlexSession()
     IOSRootView()
         .environmentObject(session)
         .environmentObject(session.browse)
