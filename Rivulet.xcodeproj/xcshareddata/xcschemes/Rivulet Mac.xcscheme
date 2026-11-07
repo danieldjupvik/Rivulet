@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D50000040000000000000004"
-               BuildableName = "Rivulet Mac.app"
+               BuildableName = "Rivulet Lab.app"
                BlueprintName = "Rivulet Mac"
                ReferencedContainer = "container:Rivulet.xcodeproj">
             </BuildableReference>
@@ -38,14 +38,13 @@
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
-      debugServiceExtension = "internal"
-     >
+      debugServiceExtension = "internal">
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D50000040000000000000004"
-            BuildableName = "Rivulet Mac.app"
+            BuildableName = "Rivulet Lab.app"
             BlueprintName = "Rivulet Mac"
             ReferencedContainer = "container:Rivulet.xcodeproj">
          </BuildableReference>
@@ -62,7 +61,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D50000040000000000000004"
-            BuildableName = "Rivulet Mac.app"
+            BuildableName = "Rivulet Lab.app"
             BlueprintName = "Rivulet Mac"
             ReferencedContainer = "container:Rivulet.xcodeproj">
          </BuildableReference>
