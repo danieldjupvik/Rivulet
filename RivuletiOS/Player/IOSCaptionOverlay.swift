@@ -14,6 +14,8 @@ struct IOSAetherSubtitleOverlay: View {
     let videoSize: CGSize
     /// Aspect fill crops the picture to the screen, so captions lay out against the screen.
     var fillsScreen = false
+    /// The global Height setting (#461), live from the menu.
+    @AppStorage(CaptionHeight.key) private var heightUnits = 0
 
     fileprivate enum Metrics {
         /// AVPlayerViewController's caption line pitch over the video height, per
@@ -54,11 +56,12 @@ struct IOSAetherSubtitleOverlay: View {
             let pointSize = Metrics.pointSize(
                 videoHeight: captionSizingHeight(in: proxy.size),
                 reported: style.fontScale,
-                font: style.font(ofSize: 100)
+                font: style.uiFont(ofSize: 100)
             )
             let picture = pictureRect(in: proxy.size)
             let osdBoundary = captionMaxY(in: picture)
             let defaultBand = defaultBandRect(
+                container: proxy.size,
                 in: picture,
                 osdBoundary: osdBoundary
             )
@@ -149,7 +152,7 @@ struct IOSAetherSubtitleOverlay: View {
             .background(
                 style.edge == .uniform
                     ? Color.clear
-                    : Color(uiColor: style.boxColor).opacity(style.boxOpacity),
+                    : Color(cgColor: style.boxColor).opacity(style.boxOpacity),
                 in: RoundedRectangle(cornerRadius: pointSize * 0.25)
             )
             .modifier(IOSCaptionEdgeModifier(style: style.edge, pointSize: pointSize))
@@ -159,11 +162,11 @@ struct IOSAetherSubtitleOverlay: View {
         _ body: AetherPlayer.SubtitleCue.Body,
         pointSize: CGFloat
     ) -> Text {
-        let userColor = Color(uiColor: style.foreground).opacity(style.foregroundOpacity)
+        let userColor = Color(cgColor: style.foreground).opacity(style.foregroundOpacity)
         switch body {
         case .text(let string):
             return Text(string)
-                .font(Font(style.font(ofSize: pointSize)))
+                .font(Font(style.uiFont(ofSize: pointSize)))
                 .foregroundColor(userColor)
         case .styledText(let runs):
             return runs.reduce(Text("")) { result, run in
@@ -206,7 +209,7 @@ struct IOSAetherSubtitleOverlay: View {
            let named = UIFont(name: name, size: size) {
             font = named
         } else {
-            font = style.font(ofSize: size)
+            font = style.uiFont(ofSize: size)
         }
 
         guard style.allowsContentFont else { return font }
@@ -271,19 +274,22 @@ struct IOSAetherSubtitleOverlay: View {
         return CGRect(origin: CGPoint(x: originX, y: originY), size: frame.size)
     }
 
+    /// The Height setting moves the band against the screen, so it can reach a letterbox bar.
     private func defaultBandRect(
+        container: CGSize,
         in picture: CGRect,
         osdBoundary: CGFloat?
     ) -> CGRect {
         let sideInset = picture.width * Metrics.sideSafeFraction
         let restingMaxY = picture.maxY
             - picture.height * Metrics.unpositionedBottomFraction
-        let maxY = min(restingMaxY, osdBoundary ?? restingMaxY)
+        let maxY = CaptionHeight.bandBottom(resting: restingMaxY, units: heightUnits,
+                                            containerHeight: container.height, cap: osdBoundary)
         return CGRect(
             x: picture.minX + sideInset,
-            y: picture.minY,
+            y: 0,
             width: max(0, picture.width - sideInset * 2),
-            height: max(0, maxY - picture.minY)
+            height: max(0, maxY)
         )
     }
 

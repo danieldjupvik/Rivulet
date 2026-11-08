@@ -8,7 +8,7 @@ import SwiftUI
 /// art under a transparent bar, actions, episodes, then related rows.
 struct IOSPlexDetailView: View {
     let item: MediaItem
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var browse: BrowseStore
     @Environment(\.plexActions) private var actions
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -17,6 +17,8 @@ struct IOSPlexDetailView: View {
     @State private var seasonKey: MediaItemRef?
     @State private var episodes: [MediaItem] = []
     @State private var episodesSeasonKey: MediaItemRef?
+    /// The picked season's own extras, shown with the show's.
+    @State private var seasonExtras: [MediaItemDetail.Extra] = []
     @State private var related: [MediaItem] = []
     @State private var error: String?
     @State private var loadedRevision: Int?
@@ -61,6 +63,7 @@ struct IOSPlexDetailView: View {
             await load()
         }
         .task(id: seasonKey) { await loadEpisodes() }
+        .task(id: seasonKey) { await loadSeasonExtras() }
     }
 
     @ViewBuilder
@@ -71,25 +74,29 @@ struct IOSPlexDetailView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, leading)
         }
-        if let summary = shown.overview, !summary.isEmpty {
+        if let episode = playTarget.flatMap({
+            EpisodePicker.episodeDescription(for: $0, overview: nil, on: shown.kind)
+        }) {
+            summaryView(episode.body, prefix: episode.prefix).padding(.horizontal, leading)
+        } else if let summary = shown.overview, !summary.isEmpty {
             summaryView(summary).padding(.horizontal, leading)
         }
         if isSeries {
             episodesSection(leading: leading)
         }
-        IOSPlexCastRow(item: shown, detail: detail)
+        IOSPlexExtrasRow(detail: detail?.adding(extras: seasonExtras))
         if !related.isEmpty {
             IOSPlexRail(title: String(localized: "More Like This"), kind: .poster, items: related) {
                 IOSPlexPosterCard(item: $0, width: $1)
             }
         }
-        IOSPlexExtrasRow(detail: detail)
+        IOSPlexCastRow(item: shown, detail: detail)
         IOSPlexInformationSection(item: shown, detail: detail).padding(.horizontal, leading)
     }
 
-    private func summaryView(_ summary: String) -> some View {
+    private func summaryView(_ summary: String, prefix: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(summary)
+            (Text(verbatim: prefix.map { $0 + " " } ?? "").bold() + Text(verbatim: summary))
                 .font(.body)
                 .lineLimit(summaryExpanded ? nil : 3)
             if summary.count > 160 {
@@ -246,6 +253,13 @@ struct IOSPlexDetailView: View {
             self.error = error.localizedDescription
         }
     }
+
+    private func loadSeasonExtras() async {
+        seasonExtras = []
+        guard shown.kind == .show, let key = seasonKey else { return }
+        let loaded = try? await browse.provider(for: key).fullDetail(for: key).extras
+        if seasonKey == key { seasonExtras = loaded ?? [] }
+    }
 }
 
 // MARK: - Header
@@ -259,7 +273,7 @@ private struct IOSPlexDetailHeader: View {
     let size: CGSize
     @Environment(\.plexActions) private var actions
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var browse: BrowseStore
     /// Asked of the server for the page's title; nil until it answers.
     @State private var onList: Bool?
     @State private var onScreen = false

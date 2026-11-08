@@ -99,7 +99,7 @@ struct IOSPlexEpisodeCell: View {
 struct IOSPlexCastRow: View {
     let item: MediaItem
     let detail: MediaItemDetail?
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var browse: BrowseStore
     @Environment(\.displayScale) private var displayScale
 
     private struct Person: Identifiable {
@@ -150,7 +150,7 @@ struct IOSPlexCastRow: View {
 struct IOSPlexExtrasRow: View {
     let detail: MediaItemDetail?
     @Environment(\.plexActions) private var actions
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var browse: BrowseStore
     @Environment(\.displayScale) private var displayScale
     @Environment(\.openURL) private var openURL
     /// The YouTube trailer awaiting its confirm.
@@ -269,6 +269,36 @@ struct IOSPlexInformationSection: View {
     }
 
     var body: some View {
+        if let ratings = detail?.ratings, !ratings.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Ratings").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 24) {
+                        ForEach(ratings, id: \.source) { rating in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(verbatim: rating.badgeText + (rating.scale ?? "")).font(.title3.weight(.semibold))
+                                Text(verbatim: rating.name).font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+            }
+            .padding(.bottom, 16)
+        }
+        if let reviews = detail?.reviews, !reviews.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Critic Reviews").font(.title3.bold()).accessibilityAddTraits(.isHeader)
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(reviews, id: \.self) { IOSReviewCard(review: $0) }
+                    }
+                }
+                .scrollIndicators(.hidden)
+            }
+            .padding(.bottom, 16)
+        }
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Information").font(.title3.bold()).accessibilityAddTraits(.isHeader)
@@ -291,5 +321,29 @@ struct IOSPlexInformationSection: View {
                 .onGeometryChange(for: Bool.self) { $0.duoFoldDividesMiddle() } action: { crossesFold = $0 }
             }
         }
+    }
+}
+
+/// One critic excerpt in the inline reviews row (server text, shown verbatim).
+private struct IOSReviewCard: View {
+    let review: CriticReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                if let verdict = review.verdict {
+                    Image(systemName: verdict.symbol)
+                        .foregroundStyle(verdict == .fresh ? Color.green : Color.red)
+                        .accessibilityLabel(verdict.label)
+                }
+                if let byline = review.byline {
+                    Text(verbatim: byline).font(.subheadline.weight(.semibold)).lineLimit(1)
+                }
+            }
+            Text(verbatim: review.excerpt).font(.subheadline).foregroundStyle(.secondary).lineLimit(4)
+        }
+        .frame(width: 280, alignment: .topLeading)
+        .padding(14)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
 }

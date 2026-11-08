@@ -41,6 +41,10 @@ final class PlayerRailView: UIView {
     let audioButton = TransportControlButton(
         icon: UIImage(systemName: "waveform"), accessibilityLabel: String(localized: "Audio"),
         diameter: Metrics.toolDiameter)
+    /// VOD only: playback speed for this item.
+    let speedButton = TransportControlButton(
+        icon: UIImage(systemName: "gauge.with.dots.needle.67percent"), accessibilityLabel: String(localized: "Speed"),
+        diameter: Metrics.toolDiameter)
     let filterButton = TransportControlButton(
         icon: UIImage(systemName: "hand.raised"), accessibilityLabel: String(localized: "Content Filter"),
         diameter: Metrics.toolDiameter)
@@ -84,6 +88,7 @@ final class PlayerRailView: UIView {
     private let noteLabel = UILabel()
     private var noteHide: DispatchWorkItem?
     var onAudio: (() -> Void)?
+    var onSpeed: (() -> Void)?
     var onInfo: (() -> Void)?
     var onChapters: (() -> Void)?
     var onScores: (() -> Void)?
@@ -101,6 +106,9 @@ final class PlayerRailView: UIView {
     private let subtitleLabel = UILabel()
     private let titleLabel = UILabel()
     private let toolRow = UIStackView()
+    /// Holds the tool row's room for the host's skip pill while the controls are up (#556).
+    /// The pill is the host's view, laid over this; the slot itself draws nothing.
+    let skipPillSlot = UIView()
     private let pillRow = UIStackView()
     /// Insights' sub-tabs, right-aligned on the pill row while its pane is open.
     private let insightsTabRow = UIStackView()
@@ -124,7 +132,9 @@ final class PlayerRailView: UIView {
         toolRow.axis = .horizontal
         toolRow.spacing = Metrics.toolGap
         toolRow.alignment = .center
-        [multiviewButton, recordButton, goLiveButton, subtitlesButton, audioButton, filterButton, qualityButton].forEach {
+        skipPillSlot.isHidden = true
+        skipPillSlot.isUserInteractionEnabled = false
+        [skipPillSlot, multiviewButton, recordButton, goLiveButton, subtitlesButton, audioButton, speedButton, filterButton, qualityButton].forEach {
             toolRow.addArrangedSubview($0)
         }
 
@@ -172,6 +182,7 @@ final class PlayerRailView: UIView {
 
         subtitlesButton.onPress = { [weak self] in self?.onSubtitles?() }
         audioButton.onPress = { [weak self] in self?.onAudio?() }
+        speedButton.onPress = { [weak self] in self?.onSpeed?() }
         infoButton.onPress = { [weak self] in self?.onInfo?() }
         chaptersButton.onPress = { [weak self] in self?.onChapters?() }
         scoresButton.onPress = { [weak self] in self?.onScores?() }
@@ -192,6 +203,7 @@ final class PlayerRailView: UIView {
         // has no content filter.
         filterButton.isHidden = true
         qualityButton.isHidden = true
+        speedButton.isHidden = true
         // Live TV only, and only in the states that give them meaning.
         goLiveButton.isHidden = true
         recordButton.isHidden = true
@@ -201,6 +213,11 @@ final class PlayerRailView: UIView {
     /// Show the content filter toggle (VOD, filtering on in Settings).
     func setFilterAvailable(_ available: Bool) {
         filterButton.isHidden = !available
+    }
+
+    /// Show the Speed menu (VOD only; Live TV never does).
+    func setSpeedAvailable(_ available: Bool) {
+        speedButton.isHidden = !available
     }
 
     /// Show the Quality menu (VOD only; Live TV never does).
@@ -406,7 +423,7 @@ final class PlayerRailView: UIView {
     func setFocusLanding(_ button: UIView) { lastFocusedButton = button }
 
     /// The leftmost tool button on screen, where AVKit lands Up from the video.
-    var firstToolButton: UIView? { toolRow.arrangedSubviews.first { !$0.isHidden } }
+    var firstToolButton: UIView? { toolRow.arrangedSubviews.first { !$0.isHidden && $0 !== skipPillSlot } }
 
     /// Drop the remembered button so the next chrome appearance starts on the
     /// scrubber again. Called when controls-focus mode ends — "where you left
