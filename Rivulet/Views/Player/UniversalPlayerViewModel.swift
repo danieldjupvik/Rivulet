@@ -3961,6 +3961,10 @@ final class UniversalPlayerViewModel: ObservableObject {
         }
         plexStopDelivery?.allowsReplay = false
         stopCount += 1
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        countdownSeconds = 0
+        isCountdownPaused = false
         if case .failed = playbackState {
             diagnostics.noteEnd(.failed, position: currentTime)
         } else {
@@ -5685,7 +5689,11 @@ final class UniversalPlayerViewModel: ObservableObject {
 
     /// At the credits boundary (or one countdown from the end): enter the Up Next flow.
     private func triggerPostVideoTransition() {
-        Task { await handlePlaybackEnded() }
+        let generation = itemGeneration, stops = stopCount
+        Task {
+            guard generation == itemGeneration, stops == stopCount else { return }
+            await handlePlaybackEnded()
+        }
     }
 
     /// Ends the play session at EOF or a final-credits skip, keeping the player

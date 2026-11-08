@@ -214,10 +214,9 @@ final class PlexPlaybackLifecycleTests: XCTestCase {
 
     func testMultipleCreditsSkipsKeepPostCreditsSceneOpenAndStopOnlyAtFinalCredits() async throws {
         let defaults = UserDefaults.standard
-        let keys = ["showSkipCredits", "autoSkipCredits"]
-        let previous = keys.map { defaults.object(forKey: $0) }
-        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
-        MarkerSkipMode.set(.manual, for: "credits")
+        let previous = defaults.object(forKey: CreditsBehavior.storageKey)
+        defer { defaults.set(previous, forKey: CreditsBehavior.storageKey) }
+        CreditsBehavior.set(.skipButton)
         let first = PlexMarker(id: 1, type: "credits", startTimeOffset: 60000, endTimeOffset: 70000)
         let final = PlexMarker(id: 2, type: "credits", startTimeOffset: 90000, endTimeOffset: 100000)
         let requests = Requests()
@@ -608,10 +607,9 @@ final class PlexPlaybackLifecycleTests: XCTestCase {
 
     func testFinishedCreditsReplayRequiresUserActionAndCannotRestartAfterExit() async throws {
         let defaults = UserDefaults.standard
-        let keys = ["showSkipCredits", "autoSkipCredits"]
-        let previous = keys.map { defaults.object(forKey: $0) }
-        defer { for (key, value) in zip(keys, previous) { defaults.set(value, forKey: key) } }
-        MarkerSkipMode.set(.manual, for: "credits")
+        let previous = defaults.object(forKey: CreditsBehavior.storageKey)
+        defer { defaults.set(previous, forKey: CreditsBehavior.storageKey) }
+        CreditsBehavior.set(.skipButton)
         let credits = PlexMarker(id: 1, type: "credits", startTimeOffset: 90000, endTimeOffset: 100000)
         let actions: [(String, (UniversalPlayerViewModel) -> Void)] = [
             ("seek", { $0.reopenPlexTimeline(at: 20) }),
