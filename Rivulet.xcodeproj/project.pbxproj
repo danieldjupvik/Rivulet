@@ -1213,6 +1213,10 @@
 				version = 7.61.0;
 			};
 			traits = (
+				DualLayerDolbyVision,
+				DolbyVisionStillReshaping,
+				TrueHDObjectAudio,
+				DTSXObjectAudio,
 				DolbyVisionFelCurves,
 			);
 		};
