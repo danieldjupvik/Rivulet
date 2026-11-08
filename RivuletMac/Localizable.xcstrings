@@ -7,6 +7,18 @@
     " " : {
 
     },
+    "At the Credits" : {
+
+    },
+    "Nothing" : {
+
+    },
+    "Skip Button" : {
+
+    },
+    "Up Next opens the next episode card when the credits start. Skip Button shows only Skip Credits, then Up Next opens at the end. Nothing waits for the end. Countdown decides autoplay." : {
+
+    },
     "\"%@\" is shared through iCloud. Remove it from this device only, or from every device?" : {
       "localizations" : {
         "de" : {
@@ -157,6 +169,9 @@
           }
         }
       }
+    },
+    "%lld More Episodes" : {
+
     },
     "%lld ch" : {
       "localizations" : {
@@ -477,6 +492,9 @@
           }
         }
       }
+    },
+    "1 More Episode" : {
+
     },
     "10 seconds" : {
       "localizations" : {
@@ -2596,6 +2614,9 @@
         }
       }
     },
+    "Critic Reviews" : {
+
+    },
     "DNS lookup failed for EPG server" : {
       "localizations" : {
         "de" : {
@@ -2627,6 +2648,9 @@
           }
         }
       }
+    },
+    "Decade" : {
+
     },
     "Default" : {
       "localizations" : {
@@ -3884,6 +3908,9 @@
         }
       }
     },
+    "Fresh" : {
+
+    },
     "From Beginning" : {
       "localizations" : {
         "de" : {
@@ -4043,6 +4070,9 @@
           }
         }
       }
+    },
+    "Higher" : {
+
     },
     "HTTP error %lld" : {
       "localizations" : {
@@ -4698,6 +4728,9 @@
           }
         }
       }
+    },
+    "Lower" : {
+
     },
     "Lowest Quality" : {
       "localizations" : {
@@ -7286,6 +7319,9 @@
         }
       }
     },
+    "Rotten" : {
+
+    },
     "Runtime" : {
       "localizations" : {
         "de" : {
@@ -8384,6 +8420,9 @@
           }
         }
       }
+    },
+    "Subtitle Height" : {
+
     },
     "Subtitle Language" : {
       "localizations" : {

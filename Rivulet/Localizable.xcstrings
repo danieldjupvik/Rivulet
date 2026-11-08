@@ -269,6 +269,9 @@
         }
       }
     },
+    "%lld More Episodes" : {
+
+    },
     "%lld Servers" : {
       "localizations" : {
         "de" : {
@@ -1499,6 +1502,9 @@
         }
       }
     },
+    "1 More Episode" : {
+
+    },
     "10 seconds" : {
       "localizations" : {
         "de" : {
@@ -2228,6 +2234,9 @@
           }
         }
       }
+    },
+    "At the Credits" : {
+
     },
     "Audio" : {
       "localizations" : {
@@ -2970,6 +2979,9 @@
           }
         }
       }
+    },
+    "Channel" : {
+
     },
     "Channel %@" : {
       "localizations" : {
@@ -4305,6 +4317,9 @@
         }
       }
     },
+    "Critic Reviews" : {
+
+    },
     "Crude & Sexual Language" : {
       "localizations" : {
         "de" : {
@@ -4410,6 +4425,9 @@
           }
         }
       }
+    },
+    "Decade" : {
+
     },
     "Decoded" : {
       "localizations" : {
@@ -6462,6 +6480,9 @@
         }
       }
     },
+    "Fresh" : {
+
+    },
     "Frightening & Intense" : {
       "localizations" : {
         "de" : {
@@ -6567,6 +6588,9 @@
           }
         }
       }
+    },
+    "Genre" : {
+
     },
     "Genres" : {
       "localizations" : {
@@ -7132,6 +7156,9 @@
           }
         }
       }
+    },
+    "How many more episodes play on their own after the one you picked. After that, the next one waits for you." : {
+
     },
     "How this source appears in Live TV. Leave it empty to use “%@”." : {
       "localizations" : {
@@ -9084,6 +9111,9 @@
           }
         }
       }
+    },
+    "Nothing" : {
+
     },
     "Nothing in your Watchlist yet." : {
       "localizations" : {
@@ -11930,6 +11960,12 @@
         }
       }
     },
+    "Rotten" : {
+
+    },
+    "Route" : {
+
+    },
     "Rows" : {
       "localizations" : {
         "de" : {
@@ -12151,6 +12187,9 @@
           }
         }
       }
+    },
+    "SOURCE" : {
+
     },
     "SP" : {
       "localizations" : {
@@ -13356,6 +13395,9 @@
         }
       }
     },
+    "Skip Button" : {
+
+    },
     "Skip Buttons" : {
       "localizations" : {
         "de" : {
@@ -13691,6 +13733,9 @@
           }
         }
       }
+    },
+    "Speed" : {
+
     },
     "Sports" : {
       "localizations" : {
@@ -14707,6 +14752,9 @@
           }
         }
       }
+    },
+    "The report is saved and will be sent with your next attempt." : {
+
     },
     "The server couldn't convert this item" : {
       "localizations" : {
@@ -16170,6 +16218,12 @@
         }
       }
     },
+    "Unwatched" : {
+
+    },
+    "Unwatched Only" : {
+
+    },
     "Up Next" : {
       "localizations" : {
         "de" : {
@@ -16182,22 +16236,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ακολουθούν"
-          }
-        }
-      }
-    },
-    "Up Next Panel" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "„Als Nächstes“-Leiste"
-          }
-        },
-        "el" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Πλαίσιο «Ακολουθούν»"
           }
         }
       }

@@ -72,11 +72,28 @@ struct IOSItemArtwork: View {
     let width: CGFloat
     /// Width over height of the requested image.
     let aspectRatio: CGFloat
+    /// The Home hero: a backdrop with the title baked in is swapped for a textless TMDB one (#450).
+    var swapsTitledBackdrop = false
     @EnvironmentObject private var browse: BrowseStore
     @Environment(\.displayScale) private var displayScale
+    @State private var textless: (from: URL, to: URL)?
+
+    private var url: URL? { Self.url(browse, item: item, kind: kind, width: width, aspectRatio: aspectRatio, scale: displayScale) }
 
     var body: some View {
-        IOSPlexImage(url: Self.url(browse, item: item, kind: kind, width: width, aspectRatio: aspectRatio, scale: displayScale))
+        let url = url
+        let swap = url.flatMap { HeroTextlessBackdrop.cached($0) } ?? (textless?.from == url ? textless?.to : nil)
+        IOSPlexImage(url: swap ?? url)
+            .task(id: url) { await swapIfTitled(url) }
+    }
+
+    private func swapIfTitled(_ url: URL?) async {
+        guard swapsTitledBackdrop, let url, let tmdb = item.heroTMDB, HeroTextlessBackdrop.cached(url) == nil else { return }
+        let swap = await HeroTextlessBackdrop.resolve(
+            backdrop: url, logo: await browse.logoURL(for: item), title: item.showTitle, tmdb: tmdb, size: "w1280"
+        ) { await IOSArtworkCache.shared.image(for: $0)?.cgImage }
+        guard !Task.isCancelled, let swap else { return }
+        textless = (url, swap)
     }
 
     /// The exact URL this view requests, so a prefetch warms the same cache entry.
@@ -218,7 +235,7 @@ struct IOSPlexPosterCard: View {
             )
             .modifier(TileSize(width: width, ratio: ratio))
             .plexWatchState(item)
-            .overlay(alignment: .topLeading) { editionBadge }
+            .overlay(alignment: .topTrailing) { editionBadge }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .tileHover(cornerRadius: 10)
             .plexZoomSource(item)
@@ -244,7 +261,7 @@ struct IOSPlexPosterCard: View {
     }
 
     /// Plex edition ("Director's Cut"), so two editions sharing a poster tell apart (#413).
-    private var edition: String? { item.editionTitle?.isEmpty == false ? item.editionTitle : nil }
+    private var edition: String? { MediaItem.shortEdition(item.editionTitle) }
 
     @ViewBuilder
     private var editionBadge: some View {
@@ -257,6 +274,8 @@ struct IOSPlexPosterCard: View {
                 .padding(.vertical, 3)
                 .background(.black.opacity(0.55), in: Capsule())
                 .padding(6)
+                // Below the watched check, which shares this corner.
+                .padding(.top, item.progressBarFraction == nil && item.isWatched ? 22 : 0)
         }
     }
 }

@@ -193,6 +193,8 @@ final class UniversalPlayerViewModel: ObservableObject {
     /// Where scrub stills come from: the Plex server's BIF, or frames the
     /// engine decodes from the playing file.
     enum ScrubThumbnailSource { case server, engine }
+    /// Jellyfin trickplay for a provider item, tried before engine frames.
+    private let providerScrubPreviews = ScrubPreviewHolder()
 
     /// The engine decode loop. One decode runs at a time (each one seeks the
     /// file, a range request when it is remote); a scrub that moves meanwhile
@@ -594,6 +596,18 @@ final class UniversalPlayerViewModel: ObservableObject {
 
     /// The quality picked in the player; nil follows the Home or Away setting. Lives for this player session.
     private var sessionQuality: StreamingQuality?
+
+    /// AVKit's tvOS speed set. A model lives for one item, so it starts at 1x.
+    static let playbackSpeeds: [Float] = [0.5, 1, 1.25, 1.5, 2]
+    private(set) var playbackSpeed: Float = 1
+
+    func setPlaybackSpeed(_ speed: Float) {
+        playbackSpeed = speed
+        aetherPlayer?.playbackRate = speed
+        guard let player else { return }
+        player.defaultRate = speed
+        if player.timeControlStatus != .paused { player.rate = speed }
+    }
     /// The quality in effect: the session pick, else the Home or Away setting.
     @Published private(set) var qualityChoice: StreamingQuality = .original
     /// What is playing: the untouched file, or a transcode at a step.
@@ -1734,6 +1748,12 @@ final class UniversalPlayerViewModel: ObservableObject {
         trackQualityStall(from: playbackState, to: state)
         playbackState = state
         isBuffering = state == .buffering
+        switch state {
+        case .playing: diagnostics.noteStarted()
+        case .ended: diagnostics.noteEnd(.ended, position: currentTime)
+        case .failed(let error): diagnostics.noteError("failed: \(error)")
+        default: break
+        }
 
         if state == .playing {
             // Not while swapping: the reused player's CurrentValueSubject
@@ -1787,6 +1807,7 @@ final class UniversalPlayerViewModel: ObservableObject {
         // Only report mid-playback stalls worth looking at; ignore startup and
         // sub-second rebuffers that are just normal pipeline breathing.
         guard currentTime > 1, stallSeconds >= 2 else { return }
+        diagnostics.noteStall(seconds: stallSeconds)
 
         let crumb = Breadcrumb(level: stallSeconds >= 10 ? .warning : .info, category: "playback_stall")
         crumb.message = String(format: "Rebuffered %.1fs at %.0fs", stallSeconds, currentTime)
@@ -2230,6 +2251,7 @@ final class UniversalPlayerViewModel: ObservableObject {
             do {
                 let ap = aetherPlayer ?? AetherPlayer()
                 aetherPlayer = ap
+                ap.playbackRate = playbackSpeed
                 // A load drops the engine's selection; the unseen read is chosen again from its tracks.
                 aetherSubtitleModel.update(cues: [])
                 silentSubtitleTrackId = nil
@@ -2817,6 +2839,7 @@ final class UniversalPlayerViewModel: ObservableObject {
             existing.replaceCurrentItem(with: item)
         } else {
             let newPlayer = AVPlayer(playerItem: item)
+            newPlayer.defaultRate = playbackSpeed
             player = newPlayer
             _playerForCleanup = newPlayer
         }
@@ -3094,6 +3117,10 @@ final class UniversalPlayerViewModel: ObservableObject {
 
     /// A still for a chapter the server has no thumb for: the BIF frame, else an engine decode.
     func chapterStill(at time: TimeInterval) async -> UIImage? {
+        if case .provider(let playback) = source,
+           let still = await providerScrubPreviews.image(at: time, for: playback) {
+            return UIImage(cgImage: still)
+        }
         if currentScrubThumbnailSource == .server, let partId = metadata.Media?.first?.Part?.first?.id,
            let image = await PlexThumbnailService.shared.getThumbnail(
                partId: partId, time: time, serverURL: serverURL, authToken: authToken) {
@@ -3934,10 +3961,11 @@ final class UniversalPlayerViewModel: ObservableObject {
         }
         plexStopDelivery?.allowsReplay = false
         stopCount += 1
-        countdownTimer?.invalidate()
-        countdownTimer = nil
-        countdownSeconds = 0
-        isCountdownPaused = false
+        if case .failed = playbackState {
+            diagnostics.noteEnd(.failed, position: currentTime)
+        } else {
+            diagnostics.noteEnd(.userExit, position: currentTime)
+        }
         cinemaStopped = true
         pausedTimelineTask?.cancel()
         pausedTimelineTask = nil
@@ -4122,6 +4150,7 @@ final class UniversalPlayerViewModel: ObservableObject {
         seekGeneration += 1
         inFlightRelativeSeekTarget = nil
         stallTracker.noteSeekOrLoad(at: Date())
+        diagnostics.noteSeek()
         if let ap = aetherPlayer {
             await ap.seek(to: time, exact: exact)
         } else {
@@ -4460,6 +4489,16 @@ final class UniversalPlayerViewModel: ObservableObject {
     }
 
     private func loadThumbnail(for time: TimeInterval) {
+        if case .provider(let playback) = source {
+            Task {
+                if let still = await providerScrubPreviews.image(at: time, for: playback) {
+                    self.scrubThumbnail = UIImage(cgImage: still)
+                } else {
+                    self.loadEngineThumbnail(for: time)
+                }
+            }
+            return
+        }
         guard currentScrubThumbnailSource == .server else {
             loadEngineThumbnail(for: time)
             return
@@ -4568,6 +4607,7 @@ final class UniversalPlayerViewModel: ObservableObject {
     /// Drop the outgoing item's BIF. Safe to call when nothing is cached; a
     /// later scrub re-fetches on demand.
     private func releaseThumbnailCache() {
+        providerScrubPreviews.clear()
         guard let partId = preloadedThumbnailPartId else { return }
         preloadedThumbnailPartId = nil
         PlexThumbnailService.shared.clearCache(partId: partId)
@@ -5183,7 +5223,7 @@ final class UniversalPlayerViewModel: ObservableObject {
 
                 // Trigger post-video summary when FIRST credits marker actually starts
                 // (skip button will be hidden by UI when postVideoState != .hidden)
-                if credits.id == upNextCredits?.id,
+                if credits.id == upNextCredits?.id, opensUpNextAtCredits,
                    time >= credits.startTimeSeconds && !hasTriggeredPostVideo {
                     hasTriggeredPostVideo = true
                     triggerPostVideoTransition()
@@ -5219,7 +5259,7 @@ final class UniversalPlayerViewModel: ObservableObject {
 
         // No credits markers: Up Next opens one countdown before the end, so autoplay lands at the
         // end. Countdown off opens it at the end. At least 85% watched, for short videos.
-        if metadata.creditsMarkers.isEmpty && duration > 60 {
+        if metadata.creditsMarkers.isEmpty && duration > 60 && opensUpNextAtCredits {
             let triggerTime = duration - TimeInterval(autoplayCountdownSetting)
             let minCompletionTime = duration * 0.85  // At least 85% watched
 
@@ -5334,26 +5374,9 @@ final class UniversalPlayerViewModel: ObservableObject {
         // The pill is Up Next's while it's folded there; no credits skip or auto-skip.
         guard let creditsId = marker.id, !upNextCollapsed else { return }
 
-        let mode = MarkerSkipMode.current(for: "credits")
-        guard mode != .off else { return }
-        let autoSkipCredits = mode == .automatic
+        guard CreditsBehavior.current().showsSkipPill else { return }
 
-        // Only auto-skip when actually inside the marker (not during preview window)
-        let insideMarker = currentTime >= marker.startTimeSeconds
-
-        // Auto-skip with a visible countdown when the setting is on.
-        if autoSkipCredits && !skippedCreditsIds.contains(creditsId) && insideMarker && !userDeclinedAutoSkip {
-            if activeMarker == nil {
-                activeMarker = marker
-                showSkipButton = true
-            }
-            if skipCountdownTimer == nil && skipCountdownSeconds == 0 {
-                startSkipCountdown(for: marker)
-            }
-            return
-        }
-
-        // Show skip button if not already skipped
+        // Credits never auto-skip; the pill is manual.
         if !skippedCreditsIds.contains(creditsId) && activeMarker == nil {
             activeMarker = marker
             showSkipButton = true
@@ -5636,11 +5659,9 @@ final class UniversalPlayerViewModel: ObservableObject {
 
     // MARK: - Post-Video Handling
 
-    /// Handle video end - transition to post-video summary
-    /// Reads the user's "Show Up Next Panel" preference. A missing key
-    /// reads as `true` so the chooser still appears for existing users.
-    private var showPostVideoUpNext: Bool {
-        UserDefaults.standard.object(forKey: "showPostVideoUpNext") as? Bool ?? true
+    /// Up Next opens at the credits only for the "Up Next" choice; movies and playlists keep their own path.
+    private var opensUpNextAtCredits: Bool {
+        playQueue != nil || metadata.type != "episode" || CreditsBehavior.current().showsUpNextAtCredits
     }
 
     /// Resolve the next episode EARLY (as soon as Aether's AVPlayer is
@@ -5662,19 +5683,9 @@ final class UniversalPlayerViewModel: ObservableObject {
         Task { await loadUpNextEpisodes() }
     }
 
-    /// At the credits boundary (or 45s from the end): enter the Up Next flow,
-    /// or, with the panel off for episodes, just mark the item watched.
+    /// At the credits boundary (or one countdown from the end): enter the Up Next flow.
     private func triggerPostVideoTransition() {
-        let generation = itemGeneration, stops = stopCount
-        let showUpNext = playQueue != nil || showPostVideoUpNext || metadata.type != "episode"
-        Task {
-            guard generation == itemGeneration, stops == stopCount else { return }
-            if showUpNext {
-                await handlePlaybackEnded()
-            } else {
-                await markCurrentAsWatched()
-            }
-        }
+        Task { await handlePlaybackEnded() }
     }
 
     /// Ends the play session at EOF or a final-credits skip, keeping the player
@@ -5710,12 +5721,8 @@ final class UniversalPlayerViewModel: ObservableObject {
         // Don't re-enter if already showing post-video
         guard postVideoState == .hidden else { return }
 
-        // Per-user opt-out of the post-video "Up Next" chooser for TV
-        // episodes. When disabled, episodes follow the same path movies
-        // already take: credits play uninterrupted at full size.
-        // Movies: No PostVideo - just let the video play through to the end.
-        // A playlist's next entry follows any type, ahead of both gates.
-        guard playQueue != nil || (isEpisode && showPostVideoUpNext) else {
+        // Movies: no Up Next, just mark watched. A playlist's next entry follows any type.
+        guard playQueue != nil || isEpisode else {
             await markCurrentAsWatched()
             return
         }
