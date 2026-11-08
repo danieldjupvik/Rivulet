@@ -102,7 +102,8 @@ actor PlexProgressReporter {
                                 force: forceReport) else { return .skipped }
 
         let durationMs = Self.milliseconds(duration)
-        let timeMs = min(Self.milliseconds(time), durationMs)
+        let positionMs = Self.milliseconds(time)
+        let timeMs = durationMs > 0 ? min(positionMs, durationMs) : positionMs
 
         // Get Plex client identifiers on MainActor
         let clientInfo = await MainActor.run {

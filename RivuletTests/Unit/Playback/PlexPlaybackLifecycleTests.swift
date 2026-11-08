@@ -47,10 +47,11 @@ final class PlexPlaybackLifecycleTests: XCTestCase {
         }
     }
 
-    private func player(_ requests: Requests, key: String = "100", markers: [PlexMarker] = []) async throws -> UniversalPlayerViewModel {
+    private func player(_ requests: Requests, key: String = "100", markers: [PlexMarker] = [], type: String = "movie") async throws -> UniversalPlayerViewModel {
         var metadata = try JSONDecoder().decode(PlexMetadata.self, from: Data(
             "{\"ratingKey\":\"\(key)\",\"type\":\"movie\",\"title\":\"Test\",\"duration\":100000}".utf8))
         metadata.Marker = markers
+        metadata.type = type
         let reporter = PlexProgressReporter { url, _ in try await requests.respond(url) }
         let vm = UniversalPlayerViewModel(metadata: metadata, serverURL: "http://127.0.0.1:9", authToken: "test",
                                           plexProgressReporter: reporter)
@@ -210,6 +211,40 @@ final class PlexPlaybackLifecycleTests: XCTestCase {
         vm.reportPlaybackState(.playing)
         await vm.reportFinalProgress(time: 95, duration: 100)
         XCTAssertEqual(requests.events, ["playing:100", "watched:100", "paused:100", "playing:100", "stopped:100"])
+    }
+
+    func testEpisodeCreditsChoicesPreserveReportingUntilPlaybackFinishes() async throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: CreditsBehavior.storageKey)
+        defer { defaults.set(previous, forKey: CreditsBehavior.storageKey) }
+        let credits = PlexMarker(id: 1, type: "credits", startTimeOffset: 90000, endTimeOffset: 100000)
+
+        for choice in [CreditsBehavior.upNext, .skipButton, .nothing] {
+            CreditsBehavior.set(choice)
+            let requests = Requests()
+            let vm = try await player(requests, markers: [credits], type: "episode")
+            let transition = expectation(description: "Credits transition for \(choice)")
+            transition.isInverted = choice != .upNext
+            var loading = false
+            let subscription = vm.$postVideoState.sink { state in
+                if state == .loading { loading = true }
+                if loading && state == .hidden { transition.fulfill() }
+            }
+
+            vm.reportPlaybackState(.playing)
+            vm.checkMarkers(at: 90)
+            await fulfillment(of: [transition], timeout: 1)
+            subscription.cancel()
+            XCTAssertEqual(loading, choice == .upNext)
+            XCTAssertEqual(vm.activeMarker != nil, choice != .nothing)
+            XCTAssertFalse(requests.events.contains("stopped:100"))
+
+            await vm.finishPlayback()
+            await vm.reportFinalProgress(time: 100, duration: 100)
+            XCTAssertEqual(requests.events.filter { $0 == "stopped:100" }.count, 1)
+            XCTAssertTrue(vm.shouldDismiss)
+            vm.stopPlayback()
+        }
     }
 
     func testMultipleCreditsSkipsKeepPostCreditsSceneOpenAndStopOnlyAtFinalCredits() async throws {
@@ -420,20 +455,22 @@ final class PlexPlaybackLifecycleTests: XCTestCase {
         let reporter = PlexProgressReporter { url, _ in try await requests.respond(url) }
         let cases: [(time: Double, duration: Double, expectedTime: Int, expectedDuration: Int)] = [
             (-1, 100, 0, 100000), (.nan, 100, 0, 100000), (.infinity, 100, 0, 100000),
-            (10, 0, 0, 0), (10, .nan, 0, 0), (10, .infinity, 0, 0),
+            (10, 0, 10000, 0), (10, -1, 10000, 0), (10, .nan, 10000, 0), (10, .infinity, 10000, 0),
             (Double.greatestFiniteMagnitude, 100, 100000, 100000), (12.345, 100, 12345, 100000)
         ]
-        for (time, duration, expectedTime, expectedDuration) in cases {
-            let count = requests.urls.count
-            await reporter.reportProgress(ratingKey: "100", time: time, duration: duration, state: "playing",
-                                          forceReport: true, server: PlexServerAddress(address: "http://127.0.0.1:9", token: "test"))
-            XCTAssertEqual(requests.urls.count, count + 1)
-            let url = try XCTUnwrap(requests.urls.last)
-            let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
-            let time = try XCTUnwrap(Int(query.first { $0.name == "time" }?.value ?? ""))
-            let duration = try XCTUnwrap(Int(query.first { $0.name == "duration" }?.value ?? ""))
-            XCTAssertEqual(time, expectedTime)
-            XCTAssertEqual(duration, expectedDuration)
+        for state in ["playing", "paused", "stopped"] {
+            for (time, duration, expectedTime, expectedDuration) in cases {
+                let count = requests.urls.count
+                await reporter.reportProgress(ratingKey: "100", time: time, duration: duration, state: state,
+                                              forceReport: true, server: PlexServerAddress(address: "http://127.0.0.1:9", token: "test"))
+                XCTAssertEqual(requests.urls.count, count + 1)
+                let url = try XCTUnwrap(requests.urls.last)
+                let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+                let time = try XCTUnwrap(Int(query.first { $0.name == "time" }?.value ?? ""))
+                let duration = try XCTUnwrap(Int(query.first { $0.name == "duration" }?.value ?? ""))
+                XCTAssertEqual(time, expectedTime)
+                XCTAssertEqual(duration, expectedDuration)
+            }
         }
     }
 

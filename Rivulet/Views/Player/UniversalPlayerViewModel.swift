@@ -2270,7 +2270,9 @@ final class UniversalPlayerViewModel: ObservableObject {
                     startTime: startTime
                 )
                 guard stops == stopCount, generation == itemGeneration, !Task.isCancelled else {
-                    ap.stop()
+                    if stops != stopCount || generation == itemGeneration || aetherPlayer !== ap {
+                        ap.stop()
+                    }
                     throw CancellationError()
                 }
                 aetherLoadReturned = true
