@@ -35,15 +35,15 @@ The video player is **AetherPlayer** — an adapter around AetherEngine (FFmpeg 
 - **Language**: Swift 6
 - **UI Framework**: UIKit for the primary surfaces (see above); SwiftUI for the rest
 - **Video Player**: AetherPlayer for VOD and Live TV; AVPlayer only for the `hls` route (server transcode, primary-when-no-direct-URL or Aether fallback). See `Docs/RIVULET_PLAYER.md`.
-- **AetherEngine**: consumed as an **upstream** SwiftPM dependency (`superuser404notfound/AetherEngine`), pinned `exactVersion` (7.57.0), with none of its optional package traits enabled. **There is no fork** — engine fixes need an upstream release or a host-side workaround; do not propose editing engine sources. Bumping it has a procedure: use the `aether-update` skill. Every bump gets a changelog line. FFmpeg + libdovi arrive **only transitively through Aether**; there is no app-level FFmpeg layer and no direct FFmpegBuild dependency. Since FFmpegBuild 2.0.0 the FFmpeg libs ship as **embedded dynamic frameworks** in `Rivulet.app/Frameworks/` — their `MinimumOSVersion` (26.0) must stay >= `TVOS_DEPLOYMENT_TARGET` (26.0), so do not raise the deployment target.
+- **AetherEngine**: consumed as an **upstream** SwiftPM dependency (`superuser404notfound/AetherEngine`), pinned `exactVersion` (7.61.0), with one optional package trait, `DolbyVisionFelCurves` (P7 FEL curve fold), set in `project.pbxproj`; the other four stay off. A bump must keep it: CI's `Scripts/restore-package-traits.py` puts it back after `use-profiles`. **There is no fork** — engine fixes need an upstream release or a host-side workaround; do not propose editing engine sources. Bumping it has a procedure: use the `aether-update` skill. Every bump gets a changelog line. FFmpeg + libdovi arrive **only transitively through Aether**; there is no app-level FFmpeg layer and no direct FFmpegBuild dependency. Since FFmpegBuild 2.0.0 the FFmpeg libs ship as **embedded dynamic frameworks** in `Rivulet.app/Frameworks/` — their `MinimumOSVersion` (26.0) must stay >= `TVOS_DEPLOYMENT_TARGET` (26.0), so do not raise the deployment target.
 - **Design Guide**: See `Docs/DESIGN_GUIDE.md` for UI/UX patterns
 - **Repo is public**: keep commit messages short and plain; no internal detail.
 
 ## Project Structure
 
-Five code roots. `RivuletCore/` is a buildable folder compiled into BOTH app
+Six code roots. `RivuletCore/` is a buildable folder compiled into ALL THREE app
 targets (not a module: `internal` spans each target); `Rivulet/` is the tvOS
-app, `RivuletiOS/` the iOS app, `TopShelfExtension/` the tvOS Top Shelf, and
+app, `RivuletiOS/` the iOS app, `RivuletMac/` the native macOS app, `TopShelfExtension/` the tvOS Top Shelf, and
 `AssetPackExtension/` the tvOS Background Assets downloader that fetches the
 speech model as an Apple-hosted asset pack (`SpeechModelStore`; Debug builds,
 which can't reach Apple hosting, fall back to Hugging Face into Caches; repack
@@ -51,7 +51,8 @@ with `Scripts/speech-model-pack.json`). See "Platform Boundary" below for what
 goes where.
 
 ```
-RivuletCore/            # Shared tvOS + iOS. The ONE Plex client (PlexNetworkManager,
+RivuletCore/            # Shared tvOS + iOS + macOS. Client/ (PlexSession, BrowseStore,
+│                       #   PlayerBackend/ProviderBackend, ClientHost), Platform/HostPlatform. The ONE Plex client (PlexNetworkManager,
 │                       #   PlexAuthManager, PlexUserProfileManager), Models/Plex,
 │                       #   TMDB, WatchProgressPolicy, IPTV parsers,
 │                       #   Security (attest, keychain), Sentry startup, Secrets,
@@ -69,13 +70,14 @@ RivuletCore/            # Shared tvOS + iOS. The ONE Plex client (PlexNetworkMan
 │                       #   hero sources, favorites and playlist rows).
 │                       #   NO #if os(...), lint-enforced.
 RivuletiOS/             # iOS/iPadOS app (SwiftUI). Shell/ (tabs, Account sheet,
-│                       #   navigation contract, IOSBrowseStore: every server's
-│                       #   content), Plex/ (IOSPlexSession: Plex sign-in and
-│                       #   playback; Home/Library/Detail views; no endpoint code), Search/, Settings/, LiveTV/ (views
+│                       #   navigation contract), Plex/ (Home/Library/Detail
+│                       #   views; no endpoint code), Search/, Settings/, LiveTV/ (views
 │                       #   over the shared LiveTVDataStore), Player/ (iOS
 │                       #   AetherPlayer, IOSPlaybackController: PiP, Now Playing),
 │                       #   Downloads/ (background transfer, download center, list;
 │                       #   records + offline progress live in RivuletCore/Downloads).
+RivuletMac/             # Native macOS app (SwiftUI + AppKit). See "Mac app" and
+│                       #   RivuletMac/README-MAC.md (navigation contract, file map).
 Rivulet/                # The tvOS app — everything below.
 ├── Models/
 │   ├── Shared/         # RivuletLink (the one rivulet:// definition) and TopShelfItem,
@@ -218,12 +220,11 @@ The Plex stack is already across: `PlexNetworkManager`, `PlexAuthManager`,
 So is the Live TV stack: `LiveTVDataStore`, `PlexLiveTVProvider` + the timeline
 keepalive, `IPTVProvider`, `DispatcharrService`, `LiveTVSourceConnector` (the
 verify-then-add behind both apps' add-source forms) and `LiveShelves` (What's On
-rows). **There is exactly one Plex client.** `RivuletiOS/Plex/` holds
-`IOSPlexSession` (Plex sign-in, profile, server choice and the Plex playback
-path) and the SwiftUI views; iOS content for every server comes from
-`RivuletiOS/Shell/IOSBrowseStore` over `MediaProviderRegistry` and the shared
-`HomeFeed`. No endpoint code in the iOS folder. Never add a second decoder for a Plex
-endpoint to the iOS folder; a bug fixed in the shared client must be the fix
+rows). **There is exactly one Plex client.** `RivuletCore/Client/` holds
+`PlexSession` (Plex sign-in, profile, server choice and the Plex playback
+path) and `BrowseStore` (every server's content over `MediaProviderRegistry`
+and the shared `HomeFeed`), used by both iOS and Mac. No endpoint code in the
+iOS or Mac folders. Never add a second decoder for a Plex endpoint to an app folder; a bug fixed in the shared client must be the fix
 for both apps.
 
 ### Host injection instead of platform conditionals
@@ -238,7 +239,7 @@ references to per-platform types:
 - `PlexAuthManager.onAuthenticated` / `.onSignedOut` and
   `PlexUserProfileManager.onProfileChanged` / `.onInitialProfileSelected` are
   closures the host sets at launch (tvOS → `PlexDataStore`, iOS →
-  `IOSPlexSession`). The managers own identity; content stores are per
+  `PlexSession`). The managers own identity; content stores are per
   platform. `onAuthenticated` is awaited on purpose — it prefetches the
   libraries the tvOS sidebar needs on its first build.
 - `SentryStartup.start(platform:)` takes the platform from the caller for the
@@ -249,9 +250,33 @@ RivuletCore is compiled into each app target, not built as a module, so
 also means an extension on a shared type inside `RivuletiOS/` is not a
 retroactive conformance.
 
-### Mac (Designed for iPad)
+### Mac app (native, `RivuletMac/`)
 
-The iOS app runs on Apple silicon Macs as **Designed for iPad**, not Mac Catalyst:
+Scheme `Rivulet Mac`, macOS 26+, SwiftUI + AppKit, sandboxed. Same parity rule
+as the other apps (no Downloads, no Photos). It reads the same `RivuletCore/Client`
+stores as iOS; only `RivuletMac/Player/AetherPlayer.swift` imports AetherEngine
+(a third adapter, so a mapping fix lands in three files until it moves to core).
+Captions have no libass layer: LibassBuild ships no macOS slice.
+
+- **Host differences come through `HostPlatform`** (`RivuletCore/Platform/`):
+  foreground notification, appearance, video-preview policy and app icon,
+  installed by `UIKitHostPlatform.swift` on tvOS/iOS and `AppKitHostPlatform.swift`
+  on Mac. Shared code returns `CGImage`/`CGColor`/`CTFont`, never `UIImage`.
+- **`SentryStartup.start(platform:configure:)`**: options that exist only on
+  UIKit platforms go in the host's `configure` closure.
+- **A focused/scene value must never be a fresh closure per body pass.** It
+  republishes, re-renders the root and loops the window toolbar at 100% CPU
+  (seen on sidebar toggle). Publish a stable reference box (`MacPageRefresh`,
+  `MacShellBox` in `Shell/MacNavigation.swift`).
+
+```bash
+xcodebuild -project Rivulet.xcodeproj -scheme "Rivulet Mac" \
+  -destination 'platform=macOS,arch=arm64' build CODE_SIGNING_ALLOWED=NO
+```
+
+### iOS app on Mac (Designed for iPad)
+
+The iOS app also runs on Apple silicon Macs as **Designed for iPad**, not Mac Catalyst:
 the FFmpeg, LibDovi and LibTrueHD xcframeworks under AetherEngine ship no
 `maccatalyst` slice and the engine is upstream-only, so Catalyst cannot link
 (`SUPPORTS_MACCATALYST = NO`). The Mac runs the iphoneos binary; the only
@@ -598,7 +623,7 @@ most servers and fails on the ones reached by raw IP (#314, #337).
 
 #### Routing policy (VOD)
 1. `ContentRouter.plan(...)` returns `PlaybackPlan { primary, fallbacks }`. Route cases: `.aether`, `.hls`.
-2. `.aether` — whenever a direct-play URL is available (AetherEngine handles demux + remux + HDR internally; software-decodes AV1 / VP9 / MPEG-2 / VC-1 / MPEG-4p2). DV P7 becomes 8.1 on a DV panel (see "HDR / DV").
+2. `.aether` — whenever a direct-play URL is available (AetherEngine handles demux + remux + HDR internally; software-decodes AV1 / VP9 / MPEG-2 / VC-1 / MPEG-4p2). DV P7 becomes 8.1 on a DV panel, FEL with its enhancement layer folded into the curves (see "HDR / DV").
 3. `.hls` — server-side transcode; primary when no direct-play URL exists, and the fallback after an Aether startup failure. `requiresVideoTranscode` codecs force a video transcode (not just remux) on this route.
 
 #### Live TV
@@ -807,7 +832,7 @@ which never names a backend.
   per-profile list and tokens from `/resources`, shared with iOS), shown beside
   Jellyfin by `ServerDataStore`. iOS keys the same servers on
   `PlexMetadata.serverID` / `PlexLibrary.serverID` / `PlexHub.serverID` (nil is
-  the selected server) and resolves each through `IOSPlexSession.configuration(serverID:)`.
+  the selected server) and resolves each through `PlexSession.configuration(serverID:)`.
   `MediaItemRef.isPlex` means the SELECTED server only, so an extra server's
   item takes the provider path; never test `hasPrefix("plex:")` to mean
   "the Plex server".
@@ -913,7 +938,7 @@ owner steps (developer portal, CloudKit schema deploy, profiles) are in
 - **Sign-out asks "this device only" or "all devices" when the account is shared**
   (`CloudSync.isSynced(accountID:)`); a token that was ever shared is revoked only
   by "all devices". A tombstone makes the other devices sign out without revoking.
-- **One per-device switch, `iCloudSyncEnabled`, on by default**, never itself synced.
+- **One per-device switch, `iCloudSyncEnabled`, off by default**, never itself synced.
   Order at launch: the Live TV store (it re-keys old M3U ids) and the provider registry
   populate first, then `CloudSync.shared.start()`.
 - **Adoption reaches the UI through the existing paths**: Plex through
@@ -982,6 +1007,9 @@ Release notes live ONLY in the `changelogs` array in
 `Rivulet/Views/Components/WhatsNewView.swift` (root `CHANGELOG.md` is a stub).
 iOS has its own, `IOSChangelog.entries` in `RivuletiOS/Settings/IOSWhatsNew.swift`,
 keyed the same way from the `ios-vX.Y.Z-<build>` tag (sheet at launch, Account → Changelog).
+Mac has `MacChangelog.entries` in `RivuletMac/Settings/MacWhatsNew.swift`, keyed from the
+`mac-vX.Y.Z-<build>` tag (sheet at launch, Help → What's New, Settings → General). Each
+platform keeps its own `MARKETING_VERSION` and build numbers; Mac started at `1.0.0 (1)`.
 Entries are keyed by build-qualified version (`"1.0.3 (65)"`), newest first.
 Settings → About → Changelog renders the full history; the fresh-launch
 "What's New" shows only the current build's entry.
@@ -1151,7 +1179,7 @@ xcodebuild test -scheme Rivulet -destination 'platform=tvOS Simulator,name=Apple
 
 Most tests live in `RivuletTests/Unit/` (mirrors `Rivulet/` roughly by feature — Parsers, Playback, Player, Preferences, Services, Siri, etc.), with shared fixtures/mocks in `RivuletTests/Fixtures/`, `RivuletTests/Helpers/`, `RivuletTests/Mocks/`. A few sit at the `RivuletTests/` root (`PlexDeviceDecodingTests.swift`).
 
-**Building requires full Xcode** (not just Command Line Tools) since it's tvOS. There is still no CI test run — run tests locally. CI is split across two systems: `codemagic.yaml` archives and publishes to TestFlight on tag push (`v*` → tvOS, `ios-v*` → iOS), and `.github/workflows/` holds five workflows — the SwiftLint gate, two Claude review/mention bots, and two build checks that exist to guard the platform boundary: `build-ios.yml` compiles the `Rivulet iOS` scheme on PRs/pushes touching `RivuletCore/**`, `RivuletiOS/**`, or the project file (otherwise nothing compiles iOS between release tags), and `build-tvos-core.yml` compiles the tvOS scheme when shared code changes from the iOS side. Both are build-only; signing and archives stay on Codemagic.
+**Building requires full Xcode** (not just Command Line Tools) since it's tvOS. There is still no CI test run — run tests locally. CI is split across two systems: `codemagic.yaml` archives and publishes to TestFlight on tag push (`v*` → tvOS, `ios-v*` → iOS, `mac-v*` → macOS, all `<prefix>X.Y.Z-<build>`), and `.github/workflows/` holds five workflows — the SwiftLint gate, two Claude review/mention bots, and two build checks that exist to guard the platform boundary: `build-ios.yml` compiles the `Rivulet iOS` scheme on PRs/pushes touching `RivuletCore/**`, `RivuletiOS/**`, or the project file (otherwise nothing compiles iOS between release tags), and `build-tvos-core.yml` compiles the tvOS scheme when shared code changes from the iOS side. Both are build-only; signing and archives stay on Codemagic.
 
 **One Xcode everywhere: `codemagic.yaml`'s `xcode:` pin.** Both build checks read it, and it must equal the Xcode you build with locally (27.2 today). When you upgrade local Xcode, bump the pin in the same commit (and the checks' `runs-on` image on a major). The type checker is the reason: a newer compiler accepts expressions an older one gives up on ("unable to type-check this expression in reasonable time"), so a mismatch passes every local build and breaks CI after the push. It happened twice before the pin (`e602163`, the favorites sort in `LiveTVDataStore`).
 
@@ -1273,7 +1301,7 @@ VOD is served by AetherPlayer (`aether` route, the default) or AVPlayer (`hls` r
 
 ### HDR / DV
 - Aether drives `AVDisplayManager.preferredDisplayCriteria` itself (host `DisplayCriteriaManager` stands down on the aether route).
-- DV is engine-owned; the RPU stays in the samples and Apple's decoder applies it. P5 is a `dvh1` sample entry with `dvcC` and `CODECS="dvh1.05.LL"`. P8.1 / P8.4 are `hvc1` + `dvvC` with `SUPPLEMENTAL-CODECS="dvh1.08.LL/db1p"` (`/db4h` for 8.4), and the HDMI criteria request `dvh1`. The supplemental only rides the master playlist, which is served once the panel is in HDR, so real DV needs a DV TV plus Match Dynamic Range (or HDR/DV output locked). P7 is converted live to single-layer 8.1 (libdovi, EL dropped) on a DV panel. Without DV on the TV, P7 plays the HDR10 base. P8.2 plays its SDR base. Without DV on the TV, 8.x plays its base layer. Rivulet sets neither `dolbyVisionHandling` nor `forceDolbyVisionOnNonDVDisplay`, so the engine defaults apply. P5 has no engine stills, so its scrub previews come from the server's thumbnails when it has them. Routing lives in the engine's `CodecRoutePolicy.swift`.
+- DV is engine-owned; the RPU stays in the samples and Apple's decoder applies it. P5 is a `dvh1` sample entry with `dvcC` and `CODECS="dvh1.05.LL"`. P8.1 / P8.4 are `hvc1` + `dvvC` with `SUPPLEMENTAL-CODECS="dvh1.08.LL/db1p"` (`/db4h` for 8.4), and the HDMI criteria request `dvh1`. The supplemental only rides the master playlist, which is served once the panel is in HDR, so real DV needs a DV TV plus Match Dynamic Range (or HDR/DV output locked). P7 is converted live to single-layer 8.1 (libdovi) on a DV panel. For FEL the `DolbyVisionFelCurves` trait keeps the stream's own mapping and folds the EL's luma residual into each scene's luma curve, so Apple's decoder applies most of the EL (fine detail and grain are lost); there is no load option and no setting. Not the `DualLayerDolbyVision` composer, which stays off. Without DV on the TV, P7 plays the HDR10 base. P8.2 plays its SDR base. Without DV on the TV, 8.x plays its base layer. Rivulet sets neither `dolbyVisionHandling` nor `forceDolbyVisionOnNonDVDisplay`, so the engine defaults apply. P5 has no engine stills, so its scrub previews come from the server's thumbnails when it has them. Routing lives in the engine's `CodecRoutePolicy.swift`.
 
 ## Plex Discover API
 

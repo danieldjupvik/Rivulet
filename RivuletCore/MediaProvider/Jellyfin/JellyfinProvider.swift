@@ -73,16 +73,42 @@ final class JellyfinProvider: MediaProvider, @unchecked Sendable {
     }
 
     func items(in library: MediaLibrary, sort: SortOption, page: Page) async throws -> PagedResult<MediaItem> {
-        try await items(in: library, sort: sort, unwatchedOnly: false, page: page)
+        try await items(in: library, sort: sort, filter: .none, page: page)
     }
 
-    func items(in library: MediaLibrary, sort: SortOption, unwatchedOnly: Bool, page: Page) async throws -> PagedResult<MediaItem> {
-        try await listing(libraryQuery(library, sort: sort, unwatchedOnly: unwatchedOnly), page: page)
+    func items(in library: MediaLibrary, sort: SortOption, filter: LibraryFilter, page: Page) async throws -> PagedResult<MediaItem> {
+        try await listing(libraryQuery(library, sort: sort, filter: filter), page: page)
+    }
+
+    /// Genres by item id (`GenreIds`) and the years present (`Items/Filters`), grouped into decades.
+    func filterOptions(in library: MediaLibrary) async throws -> LibraryFilterOptions {
+        let scope = [URLQueryItem(name: "parentId", value: library.id),
+                     URLQueryItem(name: "includeItemTypes", value: Self.itemTypes(for: library.kind))]
+        async let genres: JFQueryResult = client.get("Genres", scope)
+        async let filters: JFFilters = client.get("Items/Filters", scope)
+        return try await LibraryFilterOptions(
+            genres: (genres.items ?? []).compactMap { item in
+                guard let id = item.id, let name = item.name else { return nil }
+                return LibraryGenre(id: id, name: name)
+            },
+            decades: LibraryFilterOptions.decades(fromYears: filters.years ?? [])
+        )
+    }
+
+    /// The `Items` parameters for a filter: `filters=IsUnplayed`, `genreIds`, and a `years` list for the decade.
+    nonisolated static func filterQuery(_ filter: LibraryFilter) -> [URLQueryItem] {
+        var query: [URLQueryItem] = []
+        if filter.unwatchedOnly { query.append(URLQueryItem(name: "filters", value: "IsUnplayed")) }
+        if let genre = filter.genre { query.append(URLQueryItem(name: "genreIds", value: genre.id)) }
+        if filter.decade != nil {
+            query.append(URLQueryItem(name: "years", value: filter.decadeYears.map(String.init).joined(separator: ",")))
+        }
+        return query
     }
 
     /// The query that defines a library listing, without its page.
     private func libraryQuery(_ library: MediaLibrary, sort: SortOption, itemTypes: String? = nil,
-                              unwatchedOnly: Bool = false) -> [URLQueryItem] {
+                              filter: LibraryFilter = .none) -> [URLQueryItem] {
         let (sortBy, order) = Self.sortParameters(sort)
         var query = [
             URLQueryItem(name: "parentId", value: library.id),
@@ -91,8 +117,7 @@ final class JellyfinProvider: MediaProvider, @unchecked Sendable {
             URLQueryItem(name: "sortBy", value: sortBy),
             URLQueryItem(name: "sortOrder", value: order)
         ]
-        if unwatchedOnly { query.append(URLQueryItem(name: "filters", value: "IsUnplayed")) }
-        return query
+        return query + Self.filterQuery(filter)
     }
 
     func shuffledItems(in library: MediaLibrary, unwatchedOnly: Bool, limit: Int) async throws -> [MediaItem] {
@@ -601,6 +626,20 @@ final class JellyfinProvider: MediaProvider, @unchecked Sendable {
             return PlaybackMarker(kind: kind, start: start, end: end)
         }
         return PlaybackExtras(markers: markers)
+    }
+
+    /// Trickplay sheets at the width nearest the 320 pt scrub still; nil when the version has none.
+    func scrubPreviews(for itemRef: MediaItemRef, sourceID: String?) async -> (any ScrubPreviewSource)? {
+        let item: JFTrickplayItem? = try? await client.get("Items/\(itemRef.itemID)",
+                                                           [URLQueryItem(name: "fields", value: "Trickplay")])
+        guard let widths = item?.widths(forSource: sourceID),
+              let info = JFTrickplayInfo.choose(from: widths, near: 320) else { return nil }
+        let client = client
+        let itemID = itemRef.itemID
+        let query = sourceID.map { [URLQueryItem(name: "mediaSourceId", value: $0)] } ?? []
+        return JellyfinTrickplayPreviews(info: info) { index in
+            await client.bytes("Videos/\(itemID)/Trickplay/\(info.width)/\(index).jpg", query)
+        }
     }
 
     /// Direct play when the server allows it, else the server's HLS transcode.

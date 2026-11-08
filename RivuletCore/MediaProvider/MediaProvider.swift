@@ -30,9 +30,11 @@ protocol MediaProvider: Sendable, Identifiable {
     // MARK: - Browse
     func libraries() async throws -> [MediaLibrary]
     func items(in library: MediaLibrary, sort: SortOption, page: Page) async throws -> PagedResult<MediaItem>
-    /// `items(in:sort:page:)` with the library's Unwatched filter. Default: the plain listing when
-    /// `unwatchedOnly` is off, and a refusal when it is on, since a provider must not pretend to filter.
-    func items(in library: MediaLibrary, sort: SortOption, unwatchedOnly: Bool, page: Page) async throws -> PagedResult<MediaItem>
+    /// `items(in:sort:page:)` narrowed by the library page's filter. Default: the plain listing when
+    /// the filter is off, and a refusal when it is on, since a provider must not pretend to filter.
+    func items(in library: MediaLibrary, sort: SortOption, filter: LibraryFilter, page: Page) async throws -> PagedResult<MediaItem>
+    /// The genres and decades a filtered listing of this library can use. Default: none.
+    func filterOptions(in library: MediaLibrary) async throws -> LibraryFilterOptions
     func children(of itemRef: MediaItemRef) async throws -> [MediaItem]
     /// At most `limit` playable titles of a video library (movies, videos, a TV library's episodes) in
     /// an order the server randomizes. Default: a refusal.
@@ -212,6 +214,9 @@ protocol MediaProvider: Sendable, Identifiable {
     /// Skip markers (intro, credits, ...) for the item. Default: none.
     /// Best effort: a backend without the data returns an empty value.
     func playbackExtras(for itemRef: MediaItemRef, sourceID: String?) async -> PlaybackExtras
+
+    /// Server-made scrub stills for the version (Jellyfin trickplay), or nil. Default: nil.
+    func scrubPreviews(for itemRef: MediaItemRef, sourceID: String?) async -> (any ScrubPreviewSource)?
 }
 
 extension MediaProvider {
@@ -240,6 +245,7 @@ extension MediaProvider {
         try await related(for: ref, kind: kind).items
     }
     func playbackExtras(for itemRef: MediaItemRef, sourceID: String?) async -> PlaybackExtras { PlaybackExtras() }
+    func scrubPreviews(for itemRef: MediaItemRef, sourceID: String?) async -> (any ScrubPreviewSource)? { nil }
     func showIdentityKeys(for showIDs: [String]) async -> [String: [String]] { [:] }
     func contentAdvisory(for ref: MediaItemRef) async throws -> ContentAdvisory? { nil }
     func search(_ query: String, inLibraries libraryIDs: [String]) async throws -> [MediaItem] {
@@ -259,9 +265,13 @@ extension MediaProvider {
         throw MediaProviderError.backendSpecific(underlying: "favorites not supported")
     }
     func trending(in library: MediaLibrary, from trending: [TMDBListItem], limit: Int) async throws -> [MediaItem] { [] }
+    func items(in library: MediaLibrary, sort: SortOption, filter: LibraryFilter, page: Page) async throws -> PagedResult<MediaItem> {
+        guard filter.isActive else { return try await items(in: library, sort: sort, page: page) }
+        throw MediaProviderError.backendSpecific(underlying: "library filter not supported")
+    }
+    func filterOptions(in library: MediaLibrary) async throws -> LibraryFilterOptions { LibraryFilterOptions() }
     func items(in library: MediaLibrary, sort: SortOption, unwatchedOnly: Bool, page: Page) async throws -> PagedResult<MediaItem> {
-        guard unwatchedOnly else { return try await items(in: library, sort: sort, page: page) }
-        throw MediaProviderError.backendSpecific(underlying: "unwatched filter not supported")
+        try await items(in: library, sort: sort, filter: LibraryFilter(unwatchedOnly: unwatchedOnly), page: page)
     }
     func shuffledItems(in library: MediaLibrary, unwatchedOnly: Bool, limit: Int) async throws -> [MediaItem] {
         throw MediaProviderError.backendSpecific(underlying: "shuffle not supported")

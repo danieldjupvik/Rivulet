@@ -28,7 +28,8 @@ public enum SentryStartup {
     /// installs swizzling plus session / app-hang tracking. Called off the main
     /// actor it trips the Main Thread Checker on every launch.
     @MainActor
-    public static func start(platform: Platform) {
+    /// `configure` sets options that only exist on the caller's platform.
+    public static func start(platform: Platform, configure: @escaping (Options) -> Void = { _ in }) {
         SentrySDK.start { options in
             options.dsn = Secrets.sentryDSN
             options.debug = false
@@ -70,12 +71,14 @@ public enum SentryStartup {
             // <unknown> in-app frames mean missing dSYMs for that build.
             options.enableAppHangTracking = true
             options.appHangTimeoutInterval = 2
-            // Also report non-fully-blocking hangs (partial main-thread
-            // stalls), not just fully-blocked ones. Defaults true in 9.x;
-            // set explicitly so a future SDK default flip can't silence them.
-            options.enableReportNonFullyBlockingAppHangs = true
+            configure(options)
 
             options.beforeSend = { event in
+                // Two non-fatal hangs per launch; "Fatal App Hang" (watchdog kills) always goes.
+                if event.exceptions?.first?.type?.hasPrefix("App Hang") == true,
+                   !SentryBridge.admit("app-hang", limit: 2) {
+                    return nil
+                }
                 // Drop cancelled URL request errors — these are normal when
                 // navigating away. "CancellationError" is listed explicitly:
                 // Swift's structured-concurrency error stringifies as

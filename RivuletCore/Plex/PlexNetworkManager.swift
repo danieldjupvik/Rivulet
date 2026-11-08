@@ -544,6 +544,20 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         return container.MediaContainer.Directory ?? []
     }
 
+    /// The genres and decades a section's `/all` can be filtered by (`genre=`, `decade=`).
+    func getLibraryFilterOptions(serverURL: String, authToken: String, sectionId: String) async throws -> LibraryFilterOptions {
+        func values(_ field: String) async throws -> [PlexFilterValue] {
+            guard let url = URL(string: "\(serverURL)/library/sections/\(sectionId)/\(field)") else {
+                throw PlexAPIError.invalidURL
+            }
+            let container: PlexFilterValueContainer = try await request(url, headers: plexHeaders(authToken: authToken))
+            return container.MediaContainer.Directory ?? []
+        }
+        async let genres = values("genre")
+        async let decades = values("decade")
+        return try await LibraryFilterOptions(plexGenres: genres, decades: decades)
+    }
+
     /// Get item metadata by rating key
     func getMetadata(
         serverURL: String,
@@ -635,7 +649,8 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             URLQueryItem(name: "includeCollections", value: "1"),
             // Watchlist and Common Sense both key on the external tmdb:// guid,
             // and the Guid array is the only place a Plex-agent item carries one.
-            URLQueryItem(name: "includeGuids", value: "1")
+            URLQueryItem(name: "includeGuids", value: "1"),
+            URLQueryItem(name: "includeReviews", value: "1")
         ]
 
         guard let url = components.url else {
@@ -1777,7 +1792,8 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         forceVideoTranscode: Bool = false,
         allowAudioDirectStream: Bool = true,
         step: QualityStep? = nil,
-        clientRendersTextSubtitles: Bool = false
+        clientRendersTextSubtitles: Bool = false,
+        sessionIdentifier: String? = nil
     ) -> (url: URL, headers: [String: String])? {
         // Request an HLS remux that keeps the HEVC/Dolby Vision bitstream intact
         // tvOS requires fMP4/CMAF segments for Dolby Vision profiles 5/8
@@ -1903,6 +1919,11 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             // Keyframe playlist improves seeking accuracy in HLS streams
             URLQueryItem(name: "includeKeyframePlaylist", value: "1")
         ]
+
+        if let sessionIdentifier {
+            items.append(URLQueryItem(name: "X-Plex-Session-Identifier", value: sessionIdentifier))
+            headers["X-Plex-Session-Identifier"] = sessionIdentifier
+        }
 
         if clientRendersTextSubtitles {
             // Without it PMS burns styled ASS in; image formats still burn.
