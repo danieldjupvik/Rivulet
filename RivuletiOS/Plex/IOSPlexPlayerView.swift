@@ -9,7 +9,7 @@ import SwiftUI
 @MainActor
 final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
     let player = AetherPlayer()
-    @Published private(set) var request: IOSPlexPlaybackRequest
+    @Published private(set) var request: PlexPlaybackRequest
     @Published private(set) var nextEpisode: PlexMetadata?
     @Published private(set) var upNextCountdown: Int?
     @Published private(set) var upNextDismissed = false
@@ -22,7 +22,7 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
     /// The server's reason when it ended this play session (dashboard Stop, paused too long; #403).
     @Published private(set) var serverStopReason: String?
 
-    private let plex: any IOSPlayerBackend
+    private let plex: any PlayerBackend
     private var skippedMarkerIDs: Set<String> = []
     private var lastReportBucket = -1
     private var reportedStopped = false
@@ -47,7 +47,7 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
     private var needsStartingTracks = false
     private var cancellables = Set<AnyCancellable>()
 
-    init(request: IOSPlexPlaybackRequest, plex: any IOSPlayerBackend, queue: PlayQueue<PlexMetadata>? = nil) {
+    init(request: PlexPlaybackRequest, plex: any PlayerBackend, queue: PlayQueue<PlexMetadata>? = nil) {
         self.request = request
         self.plex = plex
         self.queue = queue
@@ -125,7 +125,8 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
             headers: request.headers,
             startTime: request.startTime,
             externalSubtitles: request.sidecarSubtitles,
-            keepingTransport: keepingTransport
+            keepingTransport: keepingTransport,
+            stackedParts: request.stackedParts
         )
         if player.audioIsDropped { fallBackToTranscode() }
     }
@@ -206,7 +207,7 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
     }
 
     private func stepDown() {
-        guard let step = QualityDecision.stepDown(from: request.plan, sourceKbps: request.sourceKbps) else { return }
+        guard !request.isStacked, let step = QualityDecision.stepDown(from: request.plan, sourceKbps: request.sourceKbps) else { return }
         stallTracker.noteStepDown()
         print("[Quality] Stalling, stepping down to \(step.label)")
         reload(quality: .auto, plan: .transcode(step))
@@ -214,7 +215,7 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
 
     /// A direct-play file that never starts gets one retry as a transcode, as on tvOS.
     private func fallBackToTranscode() {
-        guard !hasPlayed, !didFallBack, request.plan == .original, !request.isLocal else { return }
+        guard !hasPlayed, !didFallBack, request.plan == .original, !request.isLocal, !request.isStacked else { return }
         didFallBack = true
         let kbps = request.quality == .auto
             ? QualityDecision.capKbps(setting: .auto, measuredKbps: request.measuredKbps, isRelay: false) ?? 8000
@@ -229,10 +230,13 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
 
     /// The Plex part whose BIF is held, released when the item changes or playback ends.
     private var thumbnailPartID: Int?
+    /// Jellyfin trickplay for a provider item, tried before engine frames.
+    private let providerPreviews = ScrubPreviewHolder()
 
     /// The still for a scrub position: the server's BIF, loaded on the first scrub, else
     /// a frame decoded from the file. A transcode has no file to decode from.
     func scrubStill(at time: Double) async -> UIImage? {
+        if let still = await providerPreviews.image(at: time, for: request.providerPlayback) { return UIImage(cgImage: still) }
         let parts = request.item.Media.flatMap { $0.indices.contains(request.mediaIndex) ? $0[request.mediaIndex] : nil }?.Part
         if !request.isLocal, !request.serverURL.isEmpty, parts?.count == 1, let partID = parts?.first?.id,
            !PlexThumbnailService.shared.isUnavailable(partId: partID) {
@@ -240,13 +244,14 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
             thumbnailPartID = partID
             let still = await PlexThumbnailService.shared.getThumbnail(
                 partId: partID, time: time, serverURL: request.serverURL, authToken: request.token)
-            if let still { return still }
+            if let still { return UIImage(cgImage: still) }
         }
         guard !isTranscoding, let frame = await player.still(atSeconds: time, maxWidth: 320) else { return nil }
         return UIImage(cgImage: frame)
     }
 
     private func releaseThumbnails() {
+        providerPreviews.clear()
         if let thumbnailPartID { PlexThumbnailService.shared.clearCache(partId: thumbnailPartID) }
         thumbnailPartID = nil
     }
@@ -583,8 +588,11 @@ final class IOSPlexPlayback: ObservableObject, IOSPlaybackSession {
 
     // MARK: - Up Next
 
-    /// Near the end: inside the credits marker, or the last 30 s.
+    /// Near the end: inside the credits marker, or the last 30 s. Only "Up Next" opens it early;
+    /// the other choices wait for the end of the file.
     var isNearEnd: Bool {
+        if player.state == .ended { return true }
+        guard CreditsBehavior.current().showsUpNextAtCredits else { return false }
         if activeMarker?.type == "credits" { return true }
         let duration = player.duration
         return duration > 60 && player.currentTime >= duration - 30
