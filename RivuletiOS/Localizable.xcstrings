@@ -1023,6 +1023,9 @@
         }
       }
     },
+    "At the Credits" : {
+
+    },
     "Audio" : {
       "localizations" : {
         "de" : {
@@ -2483,6 +2486,9 @@
         }
       }
     },
+    "Critic Reviews" : {
+
+    },
     "DNS lookup failed for EPG server" : {
       "localizations" : {
         "de" : {
@@ -2514,6 +2520,9 @@
           }
         }
       }
+    },
+    "Decade" : {
+
     },
     "Default" : {
       "localizations" : {
@@ -3796,6 +3805,9 @@
         }
       }
     },
+    "Fresh" : {
+
+    },
     "Genre" : {
       "localizations" : {
         "de" : {
@@ -3910,6 +3922,9 @@
     },
     "Hero Playlists" : {},
     "Hidden from Home" : {},
+    "Higher" : {
+
+    },
     "HTTP error %lld" : {
       "localizations" : {
         "de" : {
@@ -4449,6 +4464,9 @@
           }
         }
       }
+    },
+    "Lower" : {
+
     },
     "Lowest Quality" : {
       "localizations" : {
@@ -5097,6 +5115,9 @@
           }
         }
       }
+    },
+    "Nothing" : {
+
     },
     "Nothing On Right Now" : {
       "localizations" : {
@@ -6234,6 +6255,9 @@
     "Reset Home Rows?" : {},
     "Reset the Hero?" : {},
     "Rows" : {},
+    "Reset subtitle height" : {
+
+    },
     "RT Audience" : {
       "localizations" : {
         "de" : {
@@ -6936,6 +6960,9 @@
         }
       }
     },
+    "Rotten" : {
+
+    },
     "Runtime" : {
       "localizations" : {
         "de" : {
@@ -7600,6 +7627,9 @@
         }
       }
     },
+    "Skip Button" : {
+
+    },
     "Skip Buttons" : {
       "localizations" : {
         "de" : {
@@ -7961,6 +7991,9 @@
           }
         }
       }
+    },
+    "Subtitle Height" : {
+
     },
     "Subtitle Language" : {
       "localizations" : {
@@ -9384,6 +9417,9 @@
           }
         }
       }
+    },
+    "Up Next opens the next episode card when the credits start. Skip Button shows only Skip Credits, then Up Next opens at the end. Nothing waits for the end. Countdown decides autoplay." : {
+
     },
     "Upcoming" : {
       "localizations" : {
