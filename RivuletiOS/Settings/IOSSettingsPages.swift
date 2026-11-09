@@ -118,7 +118,7 @@ struct IOSPlaybackSettingsView: View {
         let subtitlesOn = SubtitleMode.current != .off
         return Section {
             Picker("Audio Language", selection: trackBinding(
-                get: { TrackIntentStore.audioIntent.map { TrackLanguage.normalize($0.language) } ?? "" },
+                get: { TrackIntentStore.audioIntent.map { TrackLanguage.preferenceCode($0.language) } ?? "" },
                 set: { TrackIntentStore.audioIntent = $0.isEmpty ? nil : AudioIntent(language: $0) }
             )) {
                 Text(TrackLanguage.audioSettingName(nil)).tag("")
@@ -131,7 +131,7 @@ struct IOSPlaybackSettingsView: View {
                 ForEach(SubtitleMode.choices, id: \.self) { Text($0.title).tag($0) }
             }
             Picker("Subtitle Language", selection: trackBinding(
-                get: { TrackLanguage.normalize(TrackIntentStore.subtitleLanguage) },
+                get: { TrackLanguage.preferenceCode(TrackIntentStore.subtitleLanguage) },
                 set: { TrackIntentStore.setSubtitles(language: $0) }
             )) {
                 ForEach(TrackLanguage.sortedChoices, id: \.self) { Text(TrackLanguage.displayName($0)).tag($0) }
