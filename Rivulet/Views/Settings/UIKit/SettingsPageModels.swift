@@ -410,7 +410,7 @@ enum SettingsContent {
             select: { TrackIntentStore.audioIntent = nil }))
         return [account] + ([TrackLanguage.original] + languages).map { code in
             SettingsRowItem(id: "al_\(code)", verbatim: TrackLanguage.audioSettingName(code), kind: .option(
-                isSelected: { TrackIntentStore.audioIntent.map { TrackLanguage.normalize($0.language) } == code },
+                isSelected: { TrackIntentStore.audioIntent.map { TrackLanguage.preferenceCode($0.language) } == code },
                 select: { TrackIntentStore.audioIntent = AudioIntent(language: code) }))
         }
     }
@@ -418,7 +418,7 @@ enum SettingsContent {
     private static var subtitleLanguagePicker: [SettingsRowItem] {
         TrackLanguage.sortedChoices.map { code in
             SettingsRowItem(id: "sl_\(code)", verbatim: TrackLanguage.displayName(code), kind: .option(
-                isSelected: { TrackLanguage.normalize(TrackIntentStore.subtitleLanguage) == code },
+                isSelected: { TrackLanguage.preferenceCode(TrackIntentStore.subtitleLanguage) == code },
                 select: { TrackIntentStore.setSubtitles(language: code) }))
         }
     }
