@@ -783,6 +783,9 @@ final class AetherPlayer: PlayerProtocol {
                             presentsHDR: engine.videoFormat != .sdr,
                             panelSupportsDolbyVision: AetherEngine.displayCapabilities.supportsDolbyVision)
     }
+    /// FEL or MEL for the current Profile 7 load, probed after it starts; nil otherwise.
+    private(set) var dolbyVisionEnhancementLayer: DolbyVisionEnhancementLayer?
+    private var enhancementLayerURL: URL?
     var sourceVideoCodecName: String? { engine.sourceVideoCodecName }
     /// "720p → 1080p (ML)" while the upscale stage runs; nil when it never started.
     var upscaleSummary: String? {
@@ -793,8 +796,6 @@ final class AetherPlayer: PlayerProtocol {
         let mlOnly = status.degraded || abs(status.sourceSize.height * CGFloat(ml) - status.targetSize.height) < 2
         return mlOnly ? "\(size) (ML)" : "\(size) (ML + MetalFX)"
     }
-    /// FEL or MEL for the current Profile 7 load; nil when the engine didn't classify it (FEL setting off, no DV panel).
-    private(set) var dolbyVisionEnhancementLayer: DolbyVisionEnhancementLayer?
 
     /// The start of a fullscreen live join, measured for issue #319. See
     /// LiveAVTelemetry.
@@ -1198,6 +1199,8 @@ final class AetherPlayer: PlayerProtocol {
             }
         }
         defer { if ownsLogHandler { EngineLog.handler = nil } }
+        // Read ahead as far as the engine's disk budget allows; live sizes its own window.
+        if !isLive { options.forwardBufferSegments = .max }
         // New content, so the previous item's aspect ratio describes nothing.
         // Reset HERE rather than when `currentItem` goes nil: the engine also
         // swaps its player for SAME-content reasons (audio track switch,
@@ -1208,6 +1211,7 @@ final class AetherPlayer: PlayerProtocol {
         // arrives.
         videoSize = .zero
         dolbyVisionEnhancementLayer = nil
+        enhancementLayerURL = url
         // New file: the previous track's script and fonts describe nothing,
         // even when the next episode repeats the same header and track id.
         assFonts = []
@@ -1236,11 +1240,29 @@ final class AetherPlayer: PlayerProtocol {
                 "fel_setting": felOn
             ])
         }
+        if engine.sourceDVProfile == 7, dolbyVisionEnhancementLayer == nil {
+            probeEnhancementLayer(url: url, headers: headers ?? [:])
+        }
         assFonts = engine.fontAttachments.map { LibassRenderer.Font(name: $0.filename, data: $0.data) }
         // The track may have been published during the load with no fonts;
         // republish so the renderer is built with them.
         assTrack = nil
         refreshASSTrack()
+    }
+
+    /// Reads the stream head once more for the RPU's el_type, off the start path.
+    private func probeEnhancementLayer(url: URL, headers: [String: String]) {
+        Task { [weak self] in
+            let layer = await Task.detached(priority: .utility) { () -> DolbyVisionEnhancementLayer? in
+                switch try? AetherEngine.probeDolbyVisionEnhancementLayer(url: url, options: LoadOptions(httpHeaders: headers)) {
+                case .fel: .full
+                case .mel: .minimal
+                default: nil
+                }
+            }.value
+            guard let self, self.enhancementLayerURL == url else { return }
+            self.dolbyVisionEnhancementLayer = layer
+        }
     }
 
     /// The engine's active subtitle track when it is ASS/SSA.
