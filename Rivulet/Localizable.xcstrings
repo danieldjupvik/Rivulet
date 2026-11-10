@@ -1108,6 +1108,28 @@
         }
       }
     },
+    "%lld photos" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "new",
+                  "value" : "%lld photo"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "new",
+                  "value" : "%lld photos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld playlists" : {
       "localizations" : {
         "de" : {
@@ -9710,6 +9732,9 @@
         }
       }
     },
+    "Photos in View" : {
+
+    },
     "Pinned Collections" : {
       "localizations" : {
         "de" : {
@@ -16137,6 +16162,9 @@
           }
         }
       }
+    },
+    "Unknown Place" : {
+
     },
     "Unknown error" : {
       "localizations" : {

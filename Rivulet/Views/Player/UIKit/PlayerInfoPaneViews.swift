@@ -54,7 +54,7 @@ final class PlayerInfoCardView: UIView {
         var showsFromBeginning = true
     }
 
-    private enum Metrics {
+    enum Metrics {
         static let height: CGFloat = 250
         static let radius: CGFloat = 48
         static let poster = CGRect(x: 23, y: 23, width: 136, height: 204)
@@ -674,8 +674,7 @@ enum DolbyVisionPlayback: String, Equatable {
     }
 }
 
-/// A Profile 7 source's enhancement layer, read from the engine's route line (it exposes no property).
-/// Only FEL reaches the budget check, so an over-budget line is FEL too.
+/// A Profile 7 source's enhancement layer, for the Details tab.
 enum DolbyVisionEnhancementLayer: String, Equatable {
     case full = "Full (FEL)"
     case minimal = "Minimal (MEL)"
