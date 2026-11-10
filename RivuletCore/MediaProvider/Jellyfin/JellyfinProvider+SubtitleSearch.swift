@@ -37,7 +37,7 @@ extension JellyfinProvider {
     static func subtitleResult(_ dto: JFRemoteSubtitle) -> SubtitleSearchResult? {
         guard let id = dto.id, !id.isEmpty else { return nil }
         return SubtitleSearchResult(
-            id: id, title: dto.name, language: dto.threeLetterISOLanguageName.map(TrackLanguage.displayName),
+            id: id, title: dto.name, language: dto.threeLetterISOLanguageName.map { TrackLanguage.displayName($0) },
             format: dto.format, isHearingImpaired: dto.hearingImpaired == true, isForced: dto.forced == true)
     }
 }

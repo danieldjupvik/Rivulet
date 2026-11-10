@@ -1240,7 +1240,9 @@ final class AetherPlayer: PlayerProtocol {
                 "fel_setting": felOn
             ])
         }
-        if engine.sourceDVProfile == 7 { probeEnhancementLayer(url: url, headers: headers ?? [:]) }
+        if engine.sourceDVProfile == 7, dolbyVisionEnhancementLayer == nil {
+            probeEnhancementLayer(url: url, headers: headers ?? [:])
+        }
         assFonts = engine.fontAttachments.map { LibassRenderer.Font(name: $0.filename, data: $0.data) }
         // The track may have been published during the load with no fonts;
         // republish so the renderer is built with them.

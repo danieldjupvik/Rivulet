@@ -35,7 +35,7 @@ extension EmbyProvider {
     static func subtitleResult(_ dto: EmbyRemoteSubtitle) -> SubtitleSearchResult? {
         guard let id = dto.id, !id.isEmpty else { return nil }
         return SubtitleSearchResult(
-            id: id, title: dto.name, language: dto.threeLetterISOLanguageName.map(TrackLanguage.displayName),
+            id: id, title: dto.name, language: dto.threeLetterISOLanguageName.map { TrackLanguage.displayName($0) },
             format: dto.format, isHearingImpaired: dto.isHearingImpaired == true, isForced: dto.isForced == true)
     }
 }
