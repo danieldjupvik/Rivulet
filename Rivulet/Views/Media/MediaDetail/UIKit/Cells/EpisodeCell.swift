@@ -133,6 +133,8 @@ final class EpisodeCell: UIView {
     /// Liquid-glass focus highlight behind the metadata (ATV+ uses glass, not a
     /// white outline). Effect is nil until focused.
     private let descriptionGlass = UIVisualEffectView(effect: nil)
+    private var glassLeading: NSLayoutConstraint!
+    private var glassTrailing: NSLayoutConstraint!
     private let episodeLabel = UILabel()
     private let titleLabel = UILabel()
     private let summaryLabel = UILabel()
@@ -264,10 +266,12 @@ final class EpisodeCell: UIView {
         descriptionGlass.layer.cornerRadius = Self.cornerRadius
         descriptionGlass.layer.cornerCurve = .continuous
         descriptionBlock.addSubview(descriptionGlass)
+        glassLeading = descriptionGlass.leadingAnchor.constraint(equalTo: descriptionBlock.leadingAnchor)
+        glassTrailing = descriptionGlass.trailingAnchor.constraint(equalTo: descriptionBlock.trailingAnchor)
         NSLayoutConstraint.activate([
             descriptionGlass.topAnchor.constraint(equalTo: descriptionBlock.topAnchor),
-            descriptionGlass.leadingAnchor.constraint(equalTo: descriptionBlock.leadingAnchor),
-            descriptionGlass.trailingAnchor.constraint(equalTo: descriptionBlock.trailingAnchor),
+            glassLeading,
+            glassTrailing,
             descriptionGlass.bottomAnchor.constraint(equalTo: descriptionBlock.bottomAnchor),
         ])
 
@@ -459,19 +463,54 @@ final class EpisodeCell: UIView {
             }
         }
 
-        // Thumbnail (async)
+        loadThumbnail(episode.artwork.thumbnail ?? episode.artwork.poster)
+    }
+
+    /// Search's tile: the rail's card as one focus stop, its label naming the season and the
+    /// footer the show, since no show page surrounds it. A season shows the show's backdrop.
+    func configure(searchResult item: MediaItem) {
+        configure(episode: item)
+        splitFocus = false
+        let show = item.seriesTitle
+        if item.kind == .season {
+            episodeLabel.text = show?.uppercased()
+            loadThumbnail(item.parentArtwork?.backdrop ?? item.artwork.backdrop ?? item.artwork.thumbnail
+                          ?? item.artwork.poster)
+        } else if let season = item.seasonNumber, let episode = item.episodeNumber {
+            episodeLabel.text = (season == 0
+                ? String(localized: "Specials · Episode \(episode)")
+                : String(localized: "Season \(season) · Episode \(episode)")).uppercased()
+        }
+        let footer = [item.kind == .episode ? show : nil, Self.displayDate(for: item)].compactMap { $0 }
+        dateLabel.text = footer.joined(separator: " · ")
+        dateLabel.isHidden = footer.isEmpty
+    }
+
+    /// Search's row focuses the whole cell, not the thumb, so the cell drives the focused look.
+    /// The panel widens with the thumb's focus growth, so the two read as one card.
+    func setWholeCardFocused(_ focused: Bool, coordinator: UIFocusAnimationCoordinator) {
+        thumbFocused = focused
+        updateDescriptionGlass(coordinator)
+        let reserve = focused ? MediaRowMetrics.focusGrowth / 2 : 0
+        glassLeading.constant = -reserve
+        glassTrailing.constant = reserve
+        coordinator.addCoordinatedAnimations({ self.descriptionBlock.layoutIfNeeded() }, completion: nil)
+    }
+
+    /// The thumbnail's artwork and its focus-free corner radius, for the carousel's entry morph.
+    var artworkView: UIView { thumbnailCard.contentView }
+    var artworkLoaded: Bool { thumbnailImageView.image != nil }
+
+    private func loadThumbnail(_ url: URL?) {
         imageToken &+= 1
         let token = imageToken
         // A memory hit paints in this pass (no pop after the rail's fade).
-        let url = episode.artwork.thumbnail ?? episode.artwork.poster
         setThumbnailImage(url.flatMap { ImageCacheManager.shared.cachedImage(for: $0) })
         if let url, thumbnailImageView.image == nil {
             Task { [weak self] in
                 let image = await ImageCacheManager.shared.image(for: url)
-                await MainActor.run {
-                    guard let self, self.imageToken == token else { return }
-                    self.setThumbnailImage(image)
-                }
+                guard let self, self.imageToken == token else { return }
+                self.setThumbnailImage(image)
             }
         }
     }
@@ -505,19 +544,7 @@ final class EpisodeCell: UIView {
         subtypeIcon.image = UIImage(systemName: trailer.subtype.glyphName, withConfiguration: config)
         subtypeIcon.isHidden = false
 
-        imageToken &+= 1
-        let token = imageToken
-        let url = trailer.artworkURL
-        setThumbnailImage(url.flatMap { ImageCacheManager.shared.cachedImage(for: $0) })
-        if let url, thumbnailImageView.image == nil {
-            Task { [weak self] in
-                let image = await ImageCacheManager.shared.image(for: url)
-                await MainActor.run {
-                    guard let self, self.imageToken == token else { return }
-                    self.setThumbnailImage(image)
-                }
-            }
-        }
+        loadThumbnail(trailer.artworkURL)
     }
 
     private func setThumbnailImage(_ image: UIImage?) {
@@ -604,6 +631,8 @@ final class EpisodeCell: UIView {
 
     /// Clear focus visuals + state on reuse.
     func resetFocusVisual() {
+        glassLeading.constant = 0
+        glassTrailing.constant = 0
         thumbFocused = false
         descFocused = false
         descriptionBlock.isFocusEligible = false

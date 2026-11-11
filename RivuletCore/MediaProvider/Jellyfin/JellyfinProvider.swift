@@ -40,17 +40,17 @@ final class JellyfinProvider: MediaProvider, @unchecked Sendable {
     /// and stop the encoding.
     private let transcodeSessions = OSAllocatedUnfairLock(initialState: Set<String>())
 
-    private var baseURL: URL { client.baseURL }
+    var baseURL: URL { client.baseURL }
     private var token: String { client.token ?? "" }
 
     /// What every list call asks for beyond the defaults: the counts behind
     /// "12/24 watched", and the parent image ids that list responses omit
     /// otherwise. Detail calls (GET /Items/{id}) return every field.
-    private static let listFields = URLQueryItem(
+    static let listFields = URLQueryItem(
         name: "fields", value: "Overview,RecursiveItemCount,SortName,ParentId,MediaSourceCount,Genres,ProviderIds"
     )
 
-    private func map(_ dtos: [JFItem]?) -> [MediaItem] {
+    func map(_ dtos: [JFItem]?) -> [MediaItem] {
         (dtos ?? []).map { JellyfinMediaMapper.item($0, providerID: id, baseURL: baseURL) }
     }
 
@@ -808,6 +808,7 @@ struct JellyfinProgressReporter: ProgressReporter {
     let mediaSourceID: String?
     let playSessionID: String?
     let isTranscode: Bool
+    var reportTimeout = PlaybackReportTimeout.duration
 
     private func report(_ position: TimeInterval, paused: Bool) -> JFPlaybackReport {
         JFPlaybackReport(
@@ -817,8 +818,8 @@ struct JellyfinProgressReporter: ProgressReporter {
         )
     }
 
-    func start(position: TimeInterval) async {
-        try? await client.post("Sessions/Playing", body: report(position, paused: false))
+    func start(position: TimeInterval) async throws {
+        try await client.post("Sessions/Playing", body: report(position, paused: false))
     }
 
     func progress(position: TimeInterval) async {
@@ -830,13 +831,17 @@ struct JellyfinProgressReporter: ProgressReporter {
     }
 
     func stopped(at position: TimeInterval) async {
-        try? await client.post("Sessions/Playing/Stopped", body: report(position, paused: false))
+        await PlaybackReportTimeout.cleanup(for: reportTimeout) {
+            try await client.post("Sessions/Playing/Stopped", body: report(position, paused: false))
+        }
         // Best effort: the server also reaps an idle encode on its own.
         guard isTranscode, let playSessionID else { return }
-        try? await client.delete("Videos/ActiveEncodings", query: [
-            URLQueryItem(name: "deviceId", value: client.deviceID),
-            URLQueryItem(name: "playSessionId", value: playSessionID)
-        ])
+        await PlaybackReportTimeout.cleanup {
+            try await client.delete("Videos/ActiveEncodings", query: [
+                URLQueryItem(name: "deviceId", value: client.deviceID),
+                URLQueryItem(name: "playSessionId", value: playSessionID)
+            ])
+        }
     }
 }
 

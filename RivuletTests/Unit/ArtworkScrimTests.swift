@@ -4,6 +4,34 @@ import UIKit
 
 @MainActor
 struct ArtworkScrimTests {
+    @Test func paletteCacheKeepsDifferentArtworkSeparate() async throws {
+        let images = [UIColor.red, .blue].map { color in
+            artwork { context in
+                context.setFillColor(color.cgColor)
+                context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
+            }
+        }
+        var colors: [UIColor] = []
+        for image in images {
+            #expect(ArtworkScrimPalette.cachedColor(for: image) == nil)
+            let result = await ArtworkScrimPalette.color(for: image)
+            let color = try #require(result)
+            #expect(ArtworkScrimPalette.cachedColor(for: image) === color)
+            let repeated = await ArtworkScrimPalette.color(for: image)
+            #expect(repeated === color)
+            colors.append(color)
+        }
+        #expect(colors[0] != colors[1])
+        #expect(ArtworkScrimPalette.cachedColor(for: images[0]) === colors[0])
+    }
+
+    @Test func transparentArtworkHasNoPaletteColor() async {
+        let image = artwork { _ in }
+        let color = await ArtworkScrimPalette.color(for: image)
+        #expect(color == nil)
+        #expect(ArtworkScrimPalette.cachedColor(for: image) == nil)
+    }
+
     @Test func palettePreservesTheSelectedColorBeforeRendering() async throws {
         let image = artwork { context in
             context.setFillColor(UIColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 1).cgColor)
