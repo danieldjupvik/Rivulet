@@ -4,42 +4,18 @@ import UIKit
 
 @MainActor
 struct ArtworkScrimTests {
-    @Test func paletteCacheKeepsDifferentArtworkSeparate() async throws {
-        let images = [UIColor.red, .blue].map { color in
-            artwork { context in
-                context.setFillColor(color.cgColor)
-                context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
-            }
-        }
-        var colors: [UIColor] = []
-        for image in images {
-            #expect(ArtworkScrimPalette.cachedColor(for: image) == nil)
-            let result = await ArtworkScrimPalette.color(for: image)
-            let color = try #require(result)
-            #expect(ArtworkScrimPalette.cachedColor(for: image) === color)
-            let repeated = await ArtworkScrimPalette.color(for: image)
-            #expect(repeated === color)
-            colors.append(color)
-        }
-        #expect(colors[0] != colors[1])
-        #expect(ArtworkScrimPalette.cachedColor(for: images[0]) === colors[0])
-    }
-
-    @Test func transparentArtworkHasNoPaletteColor() async {
+    @Test func transparentArtworkHasNoPaletteColor() {
         let image = artwork { _ in }
-        let color = await ArtworkScrimPalette.color(for: image)
+        let color = ArtworkScrim.analyze(image)
         #expect(color == nil)
-        #expect(ArtworkScrimPalette.cachedColor(for: image) == nil)
     }
 
-    @Test func palettePreservesTheSelectedColorBeforeRendering() async throws {
+    @Test func palettePreservesTheSelectedColorBeforeRendering() throws {
         let image = artwork { context in
             context.setFillColor(UIColor(red: 0.7, green: 0.5, blue: 0.3, alpha: 1).cgColor)
             context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
         }
-        let view = ArtworkScrimView()
-        await configure(view, image: image)
-        let actual = try components(view)
+        let actual = try components(ArtworkScrim.analyze(image))
         for (value, expected) in zip(actual, [CGFloat(0.7), 0.5, 0.3]) {
             #expect(abs(value - expected) < 0.005)
         }
@@ -47,30 +23,12 @@ struct ArtworkScrimTests {
 
     @Test(arguments: [false, true])
     func fadeCompositesColorBelowGrayAndLeavesTheTopClear(missingColor: Bool) throws {
-        let view = ArtworkScrimView(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
-        view.configure(color: .blue)
-        view.layoutIfNeeded()
-        view.configure(color: missingColor ? nil : .white)
-        view.frame.size = CGSize(width: 40, height: 400)
-        view.setNeedsLayout()
-        view.layoutIfNeeded()
-        let layers = try #require(view.layer.sublayers)
-        try #require(layers.allSatisfy { $0.frame == view.bounds })
-
-        var pixels = [UInt8](repeating: 0, count: 40 * 400 * 4)
-        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        try pixels.withUnsafeMutableBytes { buffer in
-            let context = try #require(CGContext(
-                data: buffer.baseAddress, width: 40, height: 400,
-                bitsPerComponent: 8, bytesPerRow: 40 * 4,
-                space: colorSpace,
-                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = artwork(size: CGSize(width: 40, height: 400)) { context in
             context.setFillColor(UIColor.white.cgColor)
-            context.fill(view.bounds)
-            context.translateBy(x: 0, y: view.bounds.height)
-            context.scaleBy(x: 1, y: -1)
-            view.layer.render(in: context)
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 400))
         }
+        let rendered = try #require(ArtworkScrim.render(image, color: missingColor ? nil : .white, aspectRatio: 0.1))
+        let pixels = try pixels(rendered)
         let gray = 40.0 / 255
         let expectedBottom = 0.036 + (missingColor ? 0 : 0.324) + 0.64 * gray
         for channel in 0..<3 {
@@ -83,7 +41,7 @@ struct ArtworkScrimTests {
     }
 
     @Test(arguments: [false, true])
-    func foregroundDoesNotDetermineBackdrop(brightBackground: Bool) async throws {
+    func foregroundDoesNotDetermineBackdrop(brightBackground: Bool) throws {
         let background = brightBackground
             ? UIColor(red: 0.7, green: 0.75, blue: 0.8, alpha: 1)
             : UIColor(red: 0.05, green: 0.1, blue: 0.15, alpha: 1)
@@ -98,88 +56,128 @@ struct ArtworkScrimTests {
             context.setFillColor(foreground.cgColor)
             context.fill(CGRect(x: 0, y: 240, width: 640, height: 120))
         }
-        let view = ArtworkScrimView()
-        await configure(view, image: plain)
-        let expected = try components(view)
-        await configure(view, image: withForeground)
-        let actual = try components(view)
+        let expected = try components(ArtworkScrim.analyze(plain))
+        let actual = try components(ArtworkScrim.analyze(withForeground))
         for (lhs, rhs) in zip(actual, expected) {
             #expect(abs(lhs - rhs) < 0.015)
         }
     }
 
-    @Test func vividBackdropDoesNotOverpowerASubstantialMutedRegion() async throws {
+    @Test func vividBackdropDoesNotOverpowerASubstantialMutedRegion() throws {
         let image = artwork { context in
             context.setFillColor(UIColor(red: 0.05, green: 0.1, blue: 0.2, alpha: 1).cgColor)
             context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
             context.setFillColor(UIColor.blue.cgColor)
             context.fill(CGRect(x: 0, y: 0, width: 350, height: 360))
         }
-        let view = ArtworkScrimView()
-        await configure(view, image: image)
-        let color = try components(view)
+        let color = try components(ArtworkScrim.analyze(image))
         #expect(color[2] < 0.25)
         #expect(color[2] > color[0])
     }
 
-    @Test func whiteSkyDoesNotWashOutTheBackdrop() async throws {
+    @Test func whiteSkyDoesNotWashOutTheBackdrop() throws {
         let image = artwork { context in
             context.setFillColor(UIColor.white.cgColor)
             context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
             context.setFillColor(UIColor(red: 0.1, green: 0.12, blue: 0.16, alpha: 1).cgColor)
             context.fill(CGRect(x: 0, y: 240, width: 640, height: 120))
         }
-        let view = ArtworkScrimView()
-        await configure(view, image: image)
-        let color = try components(view)
+        let color = try components(ArtworkScrim.analyze(image))
         #expect(color.allSatisfy { $0 < 0.25 })
         #expect(color[2] > color[0])
     }
 
-    @Test func transparentPixelsDoNotBecomeTheDominantColor() async throws {
+    @Test func transparentPixelsDoNotBecomeTheDominantColor() throws {
         let image = artwork { context in
             context.setFillColor(UIColor.red.cgColor)
             context.fill(CGRect(x: 200, y: 100, width: 200, height: 100))
         }
-        let view = ArtworkScrimView()
-        await configure(view, image: image)
-        let color = try components(view)
+        let color = try components(ArtworkScrim.analyze(image))
         #expect(color[0] > color[1] + 0.3)
         #expect(color[0] > color[2] + 0.3)
     }
 
-    @Test func missingAndTransparentArtworkClearThePreviousColor() async throws {
-        let view = ArtworkScrimView()
-        let fallback = try components(view)
+    @Test func renderedArtworkIsCachedSeparatelyForEachSourceAndCrop() async throws {
         let red = artwork { context in
             context.setFillColor(UIColor.red.cgColor)
             context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
         }
-        for empty in [nil, artwork { _ in }] as [UIImage?] {
-            await configure(view, image: red)
-            await configure(view, image: empty)
-            #expect(try components(view) == fallback)
+        let blue = artwork { context in
+            context.setFillColor(UIColor.blue.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
         }
+        #expect(ArtworkScrim.cachedImage(for: red, aspectRatio: 16 / 9) == nil)
+        let redResult = await ArtworkScrim.image(for: red, aspectRatio: 16 / 9)
+        let renderedRed = try #require(redResult)
+        #expect(ArtworkScrim.cachedImage(for: red, aspectRatio: 16 / 9) === renderedRed)
+        let repeated = await ArtworkScrim.image(for: red, aspectRatio: 16 / 9)
+        #expect(repeated === renderedRed)
+        let blueResult = await ArtworkScrim.image(for: blue, aspectRatio: 16 / 9)
+        let renderedBlue = try #require(blueResult)
+        #expect(renderedRed !== renderedBlue)
+        let redPixels = try pixels(renderedRed)
+        let bluePixels = try pixels(renderedBlue)
+        #expect(redPixels[0] > redPixels[2])
+        #expect(bluePixels[2] > bluePixels[0])
+        #expect(ArtworkScrim.cachedImage(for: red, aspectRatio: 1) == nil)
+        let squareResult = await ArtworkScrim.image(for: red, aspectRatio: 1)
+        let square = try #require(squareResult)
+        #expect(square.size.width == square.size.height)
+        #expect(ArtworkScrim.cachedImage(for: red, aspectRatio: 1) === square)
+        #expect(ArtworkScrim.cachedImage(for: red, aspectRatio: 16 / 9) == nil)
     }
 
-    private func configure(_ view: ArtworkScrimView, image: UIImage?) async {
-        let color = if let image { await ArtworkScrimPalette.color(for: image) } else { nil as UIColor? }
-        view.configure(color: color)
+    @Test func fadeStaysAtTheBottomAfterCroppingPortraitArtwork() throws {
+        let image = artwork(size: CGSize(width: 40, height: 120)) { context in
+            context.setFillColor(UIColor.red.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(CGRect(x: 0, y: 40, width: 40, height: 40))
+            context.setFillColor(UIColor.blue.cgColor)
+            context.fill(CGRect(x: 0, y: 80, width: 40, height: 40))
+        }
+        let rendered = try #require(ArtworkScrim.render(image, color: .black, aspectRatio: 2))
+        #expect(rendered.size == CGSize(width: 120, height: 60))
+        let pixels = try pixels(rendered)
+        #expect(pixels[0] == 255)
+        #expect(pixels[1] == 255)
+        #expect(pixels[2] == 255)
+        let bottom = (59 * 120 + 60) * 4
+        #expect(pixels[bottom] < 80)
+        #expect(pixels[bottom] == pixels[bottom + 2])
     }
 
-    private func artwork(draw: (CGContext) -> Void) -> UIImage {
+    @Test(arguments: [CGFloat.zero, -1, .infinity, .nan])
+    func invalidCropDoesNotRender(aspectRatio: CGFloat) {
+        let image = artwork { _ in }
+        #expect(ArtworkScrim.render(image, color: nil, aspectRatio: aspectRatio) == nil)
+    }
+
+    private func artwork(size: CGSize = CGSize(width: 640, height: 360), draw: (CGContext) -> Void) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.preferredRange = .standard
-        return UIGraphicsImageRenderer(size: CGSize(width: 640, height: 360), format: format).image {
+        return UIGraphicsImageRenderer(size: size, format: format).image {
             draw($0.cgContext)
         }
     }
 
-    private func components(_ view: ArtworkScrimView) throws -> [CGFloat] {
-        let gradient = try #require(view.layer.sublayers?.compactMap { $0 as? CAGradientLayer }.first)
-        let colors = try #require(gradient.colors as? [CGColor])
-        let color = UIColor(cgColor: try #require(colors.last))
+    private func pixels(_ image: UIImage) throws -> [UInt8] {
+        let image = try #require(image.cgImage)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try #require(CGContext(
+                data: buffer.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: image.width * 4, space: colorSpace,
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return pixels
+    }
+
+    private func components(_ color: UIColor?) throws -> [CGFloat] {
+        let color = try #require(color)
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0

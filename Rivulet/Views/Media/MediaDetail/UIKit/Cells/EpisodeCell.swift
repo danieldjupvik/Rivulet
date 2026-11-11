@@ -107,7 +107,6 @@ final class EpisodeCell: UIView {
     private let thumbnailImageView = UIImageView()
 
     private var thumbHeightConstraint: NSLayoutConstraint!
-    private let episodeScrim = ArtworkScrimView()
     private let trailerScrim = TrailerScrimView()
     private let trailerTitleLabel = UILabel()
 
@@ -115,7 +114,7 @@ final class EpisodeCell: UIView {
     private let durationIcon = UIImageView()
     private let durationLabel = UILabel()
 
-    /// Subtype icon shown top-trailing on trailer/extra tiles (film, camera, etc.).
+    /// Subtype icon shown top-leading on trailer/extra tiles (film, camera, etc.).
     private let subtypeIcon = UIImageView()
 
     private let progressTrack = UIView()
@@ -187,9 +186,6 @@ final class EpisodeCell: UIView {
             NSDirectionalEdgeInsets(top: 15, leading: 20, bottom: 15, trailing: 20)
         thumbnailCard.contentView.addSubview(thumbnailImageView)
 
-        episodeScrim.translatesAutoresizingMaskIntoConstraints = false
-        thumbnailImageView.overlayContentView.addSubview(episodeScrim)
-
         // A trailer's title rides inside the artwork, over a scrim.
         trailerScrim.translatesAutoresizingMaskIntoConstraints = false
         trailerScrim.isHidden = true
@@ -230,7 +226,6 @@ final class EpisodeCell: UIView {
         progressFill.backgroundColor = UIColor.white.withAlphaComponent(0.9)
         progressTrack.addSubview(progressFill)
 
-        // Watched tag (top-trailing)
         watchedGlyph.isHidden = true
         thumbnailImageView.overlayContentView.addSubview(watchedGlyph)
 
@@ -347,11 +342,6 @@ final class EpisodeCell: UIView {
             thumbnailCard.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -reserve),
             thumbHeightConstraint,
 
-            episodeScrim.topAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.topAnchor),
-            episodeScrim.leadingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.leadingAnchor),
-            episodeScrim.trailingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.trailingAnchor),
-            episodeScrim.bottomAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.bottomAnchor),
-
             trailerScrim.leadingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.leadingAnchor),
             trailerScrim.trailingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.trailingAnchor),
             trailerScrim.bottomAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.bottomAnchor),
@@ -384,7 +374,6 @@ final class EpisodeCell: UIView {
             progressFill.bottomAnchor.constraint(equalTo: progressTrack.bottomAnchor),
             progressFillWidth,
 
-            // Watched tag: top-trailing.
             // Bottom-left, same spot as the runtime badge (the two are
             // mutually exclusive — watched hides the runtime badge).
             watchedGlyph.leadingAnchor.constraint(equalTo: thumbnailImageView.overlayContentView.layoutMarginsGuide.leadingAnchor),
@@ -501,16 +490,16 @@ final class EpisodeCell: UIView {
     var artworkView: UIView { thumbnailCard.contentView }
     var artworkLoaded: Bool { thumbnailImageView.image != nil }
 
-    private func loadThumbnail(_ url: URL?) {
+    private func loadThumbnail(_ url: URL?, withScrim: Bool = true) {
         imageToken &+= 1
         let token = imageToken
         // A memory hit paints in this pass (no pop after the rail's fade).
-        setThumbnailImage(url.flatMap { ImageCacheManager.shared.cachedImage(for: $0) })
+        setThumbnailImage(url.flatMap { ImageCacheManager.shared.cachedImage(for: $0) }, withScrim: withScrim)
         if let url, thumbnailImageView.image == nil {
             Task { [weak self] in
                 let image = await ImageCacheManager.shared.image(for: url)
                 guard let self, self.imageToken == token else { return }
-                self.setThumbnailImage(image)
+                self.setThumbnailImage(image, withScrim: withScrim)
             }
         }
     }
@@ -544,21 +533,28 @@ final class EpisodeCell: UIView {
         subtypeIcon.image = UIImage(systemName: trailer.subtype.glyphName, withConfiguration: config)
         subtypeIcon.isHidden = false
 
-        loadThumbnail(trailer.artworkURL)
+        loadThumbnail(trailer.artworkURL, withScrim: false)
     }
 
-    private func setThumbnailImage(_ image: UIImage?) {
-        thumbnailImageView.image = image
+    private func setThumbnailImage(_ image: UIImage?, withScrim: Bool) {
         thumbnailCard.contentView.backgroundColor = image == nil ? UIColor(white: 0.15, alpha: 1) : .clear
-        guard !episodeScrim.isHidden else { return }
-        let cachedColor = image.flatMap { ArtworkScrimPalette.cachedColor(for: $0) }
-        episodeScrim.configure(color: cachedColor)
-        guard let image, cachedColor == nil else { return }
+        guard let image, withScrim else {
+            thumbnailImageView.image = image
+            return
+        }
+        // A separate fade overlay showed a bright bottom edge during focus loss after preview expansion.
+        // Compositing keeps the fade and artwork in the same image through native focus transitions.
+        let aspectRatio = Self.cardWidth / (Self.thumbHeight - MediaRowMetrics.focusGrowth)
+        if let cached = ArtworkScrim.cachedImage(for: image, aspectRatio: aspectRatio) {
+            thumbnailImageView.image = cached
+            return
+        }
+        thumbnailImageView.image = image
         let token = imageToken
         Task { [weak self] in
-            let color = await ArtworkScrimPalette.color(for: image)
-            guard let self, self.imageToken == token else { return }
-            self.episodeScrim.configure(color: color)
+            let rendered = await ArtworkScrim.image(for: image, aspectRatio: aspectRatio)
+            guard let self, self.imageToken == token, let rendered else { return }
+            self.thumbnailImageView.image = rendered
         }
     }
 
@@ -566,7 +562,6 @@ final class EpisodeCell: UIView {
     private func setTrailerLayout(_ trailer: Bool) {
         let height = trailer ? Self.trailerThumbHeight : Self.thumbHeight
         thumbHeightConstraint.constant = height
-        episodeScrim.isHidden = trailer
         trailerScrim.isHidden = !trailer
         trailerTitleLabel.isHidden = !trailer
         descriptionBlock.isHidden = trailer

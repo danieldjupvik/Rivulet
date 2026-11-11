@@ -5,27 +5,74 @@ import CoreImage
 import UIKit
 
 @MainActor
-enum ArtworkScrimPalette {
+enum ArtworkScrim {
     private nonisolated static let context = CIContext(options: [.workingColorSpace: NSNull()])
     private nonisolated static let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let workQueue = DispatchQueue(label: "rivulet.artwork-scrim", qos: .utility)
     // Identity keys avoid retaining artwork beyond the image cache's lifetime.
-    private static let colors = NSMapTable<UIImage, UIColor>(
+    private static let imageKeys = NSMapTable<UIImage, ImageKey>(
         keyOptions: [.weakMemory, .objectPointerPersonality], valueOptions: .strongMemory)
+    private static let images: NSCache<ImageKey, UIImage> = {
+        let cache = NSCache<ImageKey, UIImage>()
+        cache.totalCostLimit = 24 << 20
+        return cache
+    }()
 
-    static func cachedColor(for image: UIImage) -> UIColor? {
-        colors.object(forKey: image)
+    private final class ImageKey: NSObject {
+        let aspectRatio: CGFloat
+        init(aspectRatio: CGFloat) { self.aspectRatio = aspectRatio }
     }
 
-    static func color(for image: UIImage) async -> UIColor? {
-        if let color = cachedColor(for: image) { return color }
-        let color = await withCheckedContinuation { continuation in
+    static func cachedImage(for image: UIImage, aspectRatio: CGFloat) -> UIImage? {
+        guard let key = imageKeys.object(forKey: image), key.aspectRatio == aspectRatio else { return nil }
+        return images.object(forKey: key)
+    }
+
+    static func image(for image: UIImage, aspectRatio: CGFloat) async -> UIImage? {
+        if let cached = cachedImage(for: image, aspectRatio: aspectRatio) { return cached }
+        let rendered = await withCheckedContinuation { continuation in
             workQueue.async {
-                continuation.resume(returning: analyze(image))
+                continuation.resume(returning: render(image, color: analyze(image), aspectRatio: aspectRatio))
             }
         }
-        if let color { colors.setObject(color, forKey: image) }
-        return color
+        guard let rendered, let pixels = rendered.cgImage else { return nil }
+        let key = ImageKey(aspectRatio: aspectRatio)
+        imageKeys.setObject(key, forKey: image)
+        images.setObject(rendered, forKey: key, cost: pixels.bytesPerRow * pixels.height)
+        return rendered
+    }
+
+    nonisolated static func render(_ image: UIImage, color: UIColor?, aspectRatio: CGFloat) -> UIImage? {
+        guard image.size.width > 0, image.size.height > 0,
+              aspectRatio.isFinite, aspectRatio > 0 else { return nil }
+        let maxPixel = min(ImageQuality.thumb.maxPixelSize, max(image.size.width, image.size.height) * image.scale)
+        let size = CGSize(width: min(maxPixel, maxPixel * aspectRatio).rounded(),
+                          height: min(maxPixel, maxPixel / aspectRatio).rounded())
+        guard size.width > 0, size.height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.preferredRange = .standard
+        return UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+            let rect = CGRect(origin: .zero, size: size)
+            image.draw(in: ContinueWatchingCardCompositor.aspectFill(image.size, in: rect))
+            let context = renderer.cgContext
+            let tint = color ?? .black
+            let tintColors = [CGFloat(0), 0.05, 0.18, 0.35, 0.55, 0.72, 0.86, 0.9].map {
+                tint.withAlphaComponent($0).cgColor
+            }
+            let darkeningColors = [CGFloat(0), 0.0256, 0.0832, 0.1664, 0.2688, 0.3712, 0.4736, 0.5568, 0.6144, 0.64].map {
+                UIColor(white: 40 / 255, alpha: $0).cgColor
+            }
+            for (colors, locations) in [
+                (tintColors, [CGFloat(0.66), 0.71, 0.77, 0.81, 0.85, 0.9, 0.94, 1]),
+                (darkeningColors, [CGFloat(0.53), 0.59, 0.65, 0.7, 0.74, 0.79, 0.83, 0.87, 0.91, 1]),
+            ] {
+                if let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations) {
+                    context.drawLinearGradient(gradient, start: .zero,
+                                               end: CGPoint(x: 0, y: size.height), options: [])
+                }
+            }
+        }
     }
 
     private nonisolated struct ColorBucket {
@@ -44,7 +91,7 @@ enum ArtworkScrimPalette {
         }
     }
 
-    private nonisolated static func analyze(_ image: UIImage) -> UIColor? {
+    nonisolated static func analyze(_ image: UIImage) -> UIColor? {
         guard let input = CIImage(image: image), input.extent.width > 0, input.extent.height > 0 else { return nil }
         let width = 64
         let height = 36
