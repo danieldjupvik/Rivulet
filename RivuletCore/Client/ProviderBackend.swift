@@ -13,9 +13,12 @@ final class ProviderBackend: PlayerBackend {
     /// Titles the player can be asked about again (Up Next, playlist entries), by item id.
     private var items: [String: MediaItem] = [:]
     private let ledger = ProviderReportLedger()
+    private let reportTimeout: Duration
 
-    init(provider: any MediaProvider, onWatchStateChange: @escaping @MainActor () async -> Void = {}) {
+    init(provider: any MediaProvider, reportTimeout: Duration = PlaybackReportTimeout.duration,
+         onWatchStateChange: @escaping @MainActor () async -> Void = {}) {
         self.provider = provider
+        self.reportTimeout = reportTimeout
         self.onWatchStateChange = onWatchStateChange
     }
 
@@ -28,13 +31,14 @@ final class ProviderBackend: PlayerBackend {
     /// `item` as a request: the stream and extras from its provider, the quality decision, the resume point.
     func firstPlayback(of item: MediaItem, fromBeginning: Bool, sourceID: String? = nil,
                        quality: StreamingQuality? = nil,
-                       throughput: (kbps: Int, at: Date)? = nil) async throws -> PlexPlaybackRequest {
+                       throughput: (kbps: Int, at: Date)? = nil,
+                       startOffset: TimeInterval? = nil) async throws -> PlexPlaybackRequest {
         register([item])
         let playback = try await ProviderPlayback.prepare(
             item: item, provider: provider, version: sourceID.map(VersionChoice.source) ?? .best,
-            quality: quality, throughput: throughput, fromBeginning: fromBeginning)
-        let start = ProviderPlayback.startOffset(detailOffset: playback.detail.item.userState.viewOffset,
-                                                 fromBeginning: fromBeginning)
+            quality: quality, throughput: throughput, fromBeginning: fromBeginning, explicitStartOffset: startOffset)
+        let start = startOffset ?? ProviderPlayback.startOffset(detailOffset: playback.detail.item.userState.viewOffset,
+                                                                fromBeginning: fromBeginning)
         return try await request(from: playback, startTime: start, picks: nil)
     }
 
@@ -63,6 +67,18 @@ final class ProviderBackend: PlayerBackend {
         guard let playback = request.providerPlayback else { throw MediaProviderError.notFound }
         let next = try await playback.reloaded(quality: quality, plan: plan, at: time, tracks: streams)
         return try await self.request(from: next, startTime: time > 1 ? time : nil, picks: streams)
+    }
+
+    func requestWithNewSubtitle(_ request: PlexPlaybackRequest, known: Set<Int>,
+                                at time: TimeInterval) async throws -> (request: PlexPlaybackRequest, trackID: Int)? {
+        guard var playback = request.providerPlayback,
+              let search = request.subtitleSearch as? ProviderSubtitleSearch,
+              let (detail, trackID) = try await search.detailWithNewSubtitle(sourceID: playback.stream.source.id, known: known)
+        else { return nil }
+        playback.detail = detail
+        let picks = TrackPicks(audio: nil, subtitle: .track(trackID))
+        let next = try await playback.reloaded(quality: request.quality, plan: request.plan, at: time, tracks: picks)
+        return (try await self.request(from: next, startTime: time > 1 ? time : nil, picks: picks), trackID)
     }
 
     /// The player's request for `playback`. A transcode starts on the tracks the saved intents pick
@@ -129,20 +145,26 @@ final class ProviderBackend: PlayerBackend {
             return nil
         }
         guard let playback = request.providerPlayback else { return nil }
-        await ledger.report(reportKey(request), make: { reporter(for: playback) }, state: state, time: time)
+        try? await PlaybackReportTimeout.run(for: reportTimeout) { @MainActor in
+            await self.ledger.report(self.reportKey(request), make: { self.reporter(for: playback) }, state: state, time: time)
+        }
         return nil
     }
 
     func openPlaySession(_ request: PlexPlaybackRequest) async {
         guard let playback = request.providerPlayback else { return }
-        await ledger.open(reportKey(request), make: { reporter(for: playback) }, position: request.startTime ?? 0)
+        try? await PlaybackReportTimeout.run(for: reportTimeout) { @MainActor in
+            await self.ledger.open(self.reportKey(request), make: { self.reporter(for: playback) }, position: request.startTime ?? 0)
+        }
     }
 
     /// Ends a replaced stream's session, direct play or transcode, at the last position it reported,
     /// so the server frees what it holds without moving the resume point.
     func stopTranscode(_ request: PlexPlaybackRequest) async {
         guard let playback = request.providerPlayback else { return }
-        await ledger.stop(reportKey(request), make: { reporter(for: playback) }, fallback: request.startTime ?? 0)
+        try? await PlaybackReportTimeout.run(for: reportTimeout) { @MainActor in
+            await self.ledger.stop(self.reportKey(request), make: { self.reporter(for: playback) }, fallback: request.startTime ?? 0)
+        }
     }
 
     private func reporter(for playback: ProviderPlayback) -> any ProgressReporter {
@@ -166,7 +188,9 @@ final class ProviderBackend: PlayerBackend {
             return
         }
         guard let ref = request.providerPlayback?.item.ref else { return }
-        try? await provider.markPlayed(ref)
+        try? await PlaybackReportTimeout.run(for: reportTimeout) { @MainActor in
+            try await self.provider.markPlayed(ref)
+        }
     }
 
     func nextEpisode(after episode: PlexMetadata, in request: PlexPlaybackRequest) async -> PlexMetadata? {
