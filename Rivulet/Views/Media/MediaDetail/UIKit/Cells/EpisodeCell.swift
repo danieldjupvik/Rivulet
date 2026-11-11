@@ -459,6 +459,7 @@ final class EpisodeCell: UIView {
     func configure(searchResult item: MediaItem) {
         configure(episode: item)
         splitFocus = false
+        descriptionFocusGuide.isEnabled = false
         let show = item.seriesTitle
         if item.kind == .season {
             episodeLabel.text = show?.uppercased()

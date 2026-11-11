@@ -591,6 +591,7 @@ final class MediaItemDetailPageViewController: UIViewController {
             youTubeVideoID: detail.youTubeTrailerID, providerID: item.ref.providerID)
         let tiles = split.trailers + split.extras
         guard !tiles.isEmpty, !hasExtras else { return }
+        if scrollStage > 0 { scrollStage = 2 }
         hasExtras = true
         extrasShelf.configure(tiles)
         extrasShelf.isHidden = false

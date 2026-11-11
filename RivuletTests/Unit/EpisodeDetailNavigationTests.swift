@@ -4,8 +4,8 @@ import UIKit
 
 @MainActor
 struct EpisodeDetailNavigationTests {
-    @Test(.serialized, arguments: [false, true])
-    func swipesReachSelectableInfoAndRespectModal(hasExtras: Bool) async throws {
+    @Test(.serialized, arguments: [false, true], [false, true])
+    func swipesReachSelectableInfoAndRespectModal(hasExtras: Bool, entersBeforeLoad: Bool) async throws {
         let provider = StubMediaProvider(id: UUID().uuidString)
         let item = MediaItem(
             ref: MediaItemRef(providerID: provider.id, itemID: "episode"), kind: .episode, title: "Episode",
@@ -34,8 +34,19 @@ struct EpisodeDetailNavigationTests {
         defer { window.isHidden = true }
         page.loadViewIfNeeded()
         let columns = try #require(descendants(of: page.view).compactMap { $0 as? InfoColumnsView }.first)
+        if entersBeforeLoad {
+            page.pressesBegan([ArrowPress(.downArrow)], with: nil)
+            #expect(page.preferredFocusEnvironments.first === columns)
+        }
         try await waitUntil { descendants(of: columns).contains { $0 is AboutCardControl } }
         page.view.layoutIfNeeded()
+        if entersBeforeLoad {
+            #expect(page.preferredFocusEnvironments.first === columns)
+            #expect(columns.isUserInteractionEnabled)
+            for _ in 0..<(hasExtras ? 2 : 1) {
+                page.pressesBegan([ArrowPress(.upArrow)], with: nil)
+            }
+        }
         let cards = descendants(of: columns).compactMap { $0 as? AboutCardControl }
         #expect(cards.count == 3)
         #expect(cards.allSatisfy { $0.canBecomeFocused })
