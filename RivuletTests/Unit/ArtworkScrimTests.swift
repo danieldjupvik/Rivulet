@@ -4,6 +4,22 @@ import UIKit
 
 @MainActor
 struct ArtworkScrimTests {
+    @Test func cancelledCacheMissDoesNotPopulateCacheOrAffectNextRequest() async throws {
+        let image = artwork { context in
+            context.setFillColor(UIColor.white.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
+        }
+        let cancelled = Task { await ArtworkScrim.image(for: image, aspectRatio: 16 / 9) }
+        cancelled.cancel()
+        let stale = await cancelled.value
+        #expect(stale == nil)
+        #expect(ArtworkScrim.cachedImage(for: image, aspectRatio: 16 / 9) == nil)
+
+        let current = await ArtworkScrim.image(for: image, aspectRatio: 16 / 9)
+        let rendered = try #require(current)
+        #expect(ArtworkScrim.cachedImage(for: image, aspectRatio: 16 / 9) === rendered)
+    }
+
     @Test func transparentArtworkHasNoPaletteColor() {
         let image = artwork { _ in }
         let color = ArtworkScrim.analyze(image)

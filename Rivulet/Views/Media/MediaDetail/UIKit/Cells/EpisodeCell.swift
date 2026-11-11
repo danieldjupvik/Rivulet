@@ -142,6 +142,7 @@ final class EpisodeCell: UIView {
     private let ratingBadge = PaddingLabel()
 
     private var imageToken: UInt64 = 0
+    private var scrimTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -153,6 +154,8 @@ final class EpisodeCell: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("EpisodeCell is not Storyboard-backed") }
+
+    deinit { scrimTask?.cancel() }
 
     private func commonInit() {
         translatesAutoresizingMaskIntoConstraints = false
@@ -490,8 +493,14 @@ final class EpisodeCell: UIView {
     var artworkView: UIView { thumbnailCard.contentView }
     var artworkLoaded: Bool { thumbnailImageView.image != nil }
 
-    private func loadThumbnail(_ url: URL?, withScrim: Bool = true) {
+    private func invalidateThumbnail() {
         imageToken &+= 1
+        scrimTask?.cancel()
+        scrimTask = nil
+    }
+
+    private func loadThumbnail(_ url: URL?, withScrim: Bool = true) {
+        invalidateThumbnail()
         let token = imageToken
         // A memory hit paints in this pass (no pop after the rail's fade).
         setThumbnailImage(url.flatMap { ImageCacheManager.shared.cachedImage(for: $0) }, withScrim: withScrim)
@@ -537,7 +546,6 @@ final class EpisodeCell: UIView {
     }
 
     private func setThumbnailImage(_ image: UIImage?, withScrim: Bool) {
-        thumbnailCard.contentView.backgroundColor = image == nil ? UIColor(white: 0.15, alpha: 1) : .clear
         guard let image, withScrim else {
             thumbnailImageView.image = image
             return
@@ -551,7 +559,7 @@ final class EpisodeCell: UIView {
         }
         thumbnailImageView.image = image
         let token = imageToken
-        Task { [weak self] in
+        scrimTask = Task { [weak self] in
             let rendered = await ArtworkScrim.image(for: image, aspectRatio: aspectRatio)
             guard let self, self.imageToken == token, let rendered else { return }
             self.thumbnailImageView.image = rendered
@@ -626,6 +634,7 @@ final class EpisodeCell: UIView {
 
     /// Clear focus visuals + state on reuse.
     func resetFocusVisual() {
+        invalidateThumbnail()
         glassLeading.constant = 0
         glassTrailing.constant = 0
         thumbFocused = false

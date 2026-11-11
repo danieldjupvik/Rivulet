@@ -3,6 +3,7 @@
 
 import CoreImage
 import UIKit
+import os
 
 @MainActor
 enum ArtworkScrim {
@@ -30,12 +31,21 @@ enum ArtworkScrim {
 
     static func image(for image: UIImage, aspectRatio: CGFloat) async -> UIImage? {
         if let cached = cachedImage(for: image, aspectRatio: aspectRatio) { return cached }
-        let rendered = await withCheckedContinuation { continuation in
-            workQueue.async {
-                continuation.resume(returning: render(image, color: analyze(image), aspectRatio: aspectRatio))
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        let rendered: UIImage? = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                workQueue.async {
+                    guard !cancelled.withLock({ $0 }) else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    continuation.resume(returning: render(image, color: analyze(image), aspectRatio: aspectRatio))
+                }
             }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
         }
-        guard let rendered, let pixels = rendered.cgImage else { return nil }
+        guard !Task.isCancelled, let rendered, let pixels = rendered.cgImage else { return nil }
         let key = ImageKey(aspectRatio: aspectRatio)
         imageKeys.setObject(key, forKey: image)
         images.setObject(rendered, forKey: key, cost: pixels.bytesPerRow * pixels.height)
