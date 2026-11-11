@@ -508,16 +508,19 @@ final class MediaItemDetailPageViewController: UIViewController {
             guard let self, let provider = self.provider else { return }
             // For an episode or a season, the show supplies the series title AND
             // the genres (their own detail usually has no genres).
+            let itemRef = self.item.ref
+            let showRef = self.showRef
+            async let showFetch: MediaItemDetail? = showRef == nil ? nil : (try? await provider.fullDetail(for: showRef!))
+            async let detailFetch = try? await provider.fullDetail(for: itemRef)
             var showGenres: [String] = []
-            if let showRef = self.showRef,
-               let showDetail = try? await provider.fullDetail(for: showRef) {
+            if let showDetail = await showFetch {
                 showGenres = showDetail.genres
                 await MainActor.run {
                     self.show = showDetail.item
                     if (self.showTitleLabel.text ?? "").isEmpty { self.setShowTitle(showDetail.item.title) }
                 }
             }
-            guard let detail = try? await provider.fullDetail(for: self.item.ref) else {
+            guard let detail = await detailFetch else {
                 if !showGenres.isEmpty { await MainActor.run { self.setGenres(showGenres) } }
                 return
             }
@@ -537,19 +540,9 @@ final class MediaItemDetailPageViewController: UIViewController {
         setGenres(detail.genres.isEmpty ? fallbackGenres : detail.genres)
         infoColumns.configure(detail: detail)
         showExtras(detail)
-        // Capability badges: file quality (4K/DV/Atmos/…) + SDH/AD. Strip any
-        // parenthetical channel-layout noise ("5.1(side)" → "5.1").
-        let source = detail.primarySource
-        var badges = source?.qualityBadges() ?? []
-        if source?.subtitleTracks.contains(where: { $0.isHearingImpaired }) ?? false { badges.append("SDH") }
-        if source?.audioTracks.contains(where: {
-            ($0.title ?? $0.extendedTitle ?? "").localizedCaseInsensitiveContains("descri")
-        }) ?? false { badges.append("AD") }
         badgeRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        for raw in badges {
-            let text = raw.replacingOccurrences(of: "\\([^)]*\\)", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespaces)
-            if !text.isEmpty { badgeRow.addArrangedSubview(Self.badge(text, filled: text == "4K")) }
+        for text in detail.primarySource?.detailBadges ?? [] {
+            badgeRow.addArrangedSubview(Self.badge(text, filled: MediaSource.filledBadges.contains(text)))
         }
         addVersionsButton(detail)
     }

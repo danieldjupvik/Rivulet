@@ -310,7 +310,8 @@ final class PlexSession: ObservableObject {
            let key = VersionRanking.select(version, in: media).media.first?.Part?.first?.key,
            let probeURL = Self.directPlayURL(serverURL: serverURL, token: token, partKey: key) {
             // Detached: the probe's read loop must not run on the main actor.
-            let kbps = await ThroughputProbe.measure(url: probeURL)
+            let kbps = await ThroughputProbe.measure(
+                url: probeURL, bytes: { try await PlexNetworkManager.shared.openEndedBytes(for: $0) })
             measurement = (kbps, Date())
         }
         let cap = forced.map { $0.step?.kbps } ?? QualityDecision.capKbps(
@@ -393,7 +394,8 @@ final class PlexSession: ObservableObject {
                 timeMs: offsetMs,
                 state: state,
                 duration: request.item.duration,
-                sessionIdentifier: request.directPlaySessionID
+                sessionIdentifier: request.directPlaySessionID,
+                reportingTimeout: PlaybackReportTimeout.duration
             )
             if let owner = plexProviderID(of: request) { ClientHost.offline.progressReached(owner, itemID: key, at: at) }
             return terminated

@@ -153,6 +153,7 @@ Standing exceptions:
 - Downloads are iOS only.
 - The watchlist is Plex only: Jellyfin and Emby have none (`supportsWatchlist`).
 - Delete is offered on an episode in a show or season page's episode list, which animates it out. A detail page never deletes its own title (an episode's page included): it would be left showing what it deleted.
+- The pause screen is tvOS only: iOS and the Mac app keep their controls up while paused, as the system player does.
 
 ## Platform Boundary (tvOS / iOS)
 
@@ -627,6 +628,8 @@ most servers and fails on the ones reached by raw IP (#314, #337).
 3. `.hls` — server-side transcode; primary when no direct-play URL exists, and the fallback after an Aether startup failure. `requiresVideoTranscode` codecs force a video transcode (not just remux) on this route.
 
 #### Live TV
+The guide fills 24 hours ahead at launch and the full 8 days once a Live TV screen has appeared
+in the session (`LiveTVDataStore.fillHorizonHours`, raised by `elevatePreloadPriority`).
 Two layouts: What's On (`LiveBrowseViewController`, the default) and the Guide (`GuideLayoutView`). Both play through `LiveTVAetherPlayerViewController` on the VOD glass rail. Multiview (`LiveMultiviewViewController`) runs **AetherPlayer** per slot (`MultiStreamViewModel` instantiates `AetherPlayer()`, each tile binds the engine surface), up to 4 concurrent slots. HDHomeRun delivers a direct stream; DVB tuners require a Plex transcode URL with full client-profile parameters (see Plex Live TV section below).
 **Xtream Codes** (`RivuletCore/IPTV/XtreamService.swift`) is live channels only, never VOD or series: account check on `player_api.php` with no `action`, channels from `get_live_streams` + `get_live_categories` (not `get.php`), guide from one bulk `xmltv.php`, streams `/live/<user>/<pass>/<id>.ts`. Panels mix ints and strings for the same field, so replies are walked by hand; never put a reply body in a log or error, `player_api.php` echoes the password. Never loop `get_short_epg` across channels: it gets users rate-banned.
 iOS reads the same `LiveTVDataStore` and saved sources and adds sources through the same `LiveTVSourceConnector`. Dispatcharr API keys and M3U playlist/guide URLs (which often embed credentials) live in the Keychain (`liveTVSourceToken_`, `liveTVSourceM3U_`, `liveTVSourceEPG_` + source id); the saved source JSON keeps one only if the Keychain write fails. An M3U source id is a hash of its URL (`m3uSourceId`), never the URL itself; older URL-keyed sources are re-keyed on launch with their saved channel ids renamed.
@@ -719,7 +722,8 @@ functions over those signals in the same file (`cost`, `chooseSlot`, `choose`,
   floor (`restingPlacement`), and stays there while it reads (`goodEnoughCost`);
   it moves only when another spot reads clearly better (`moveMargin`), so a row
   keeps one look. `trailingCost` keeps it off the trailing edge unless needed.
-  The same hold applies to Top Shelf and the pause screen through `chooseSlot`.
+  The same hold applies to Top Shelf through `chooseSlot`. The pause screen
+  (`PauseScreenView`) does not read its artwork: its logo has a fixed place.
 - **Top Shelf logo**: `TopShelfImageCompositor.placement` runs the same `choose`
   over its own candidate rects.
 - **The Home hero does not read its artwork.** Its scrim is the Apple TV app's,
@@ -771,12 +775,33 @@ Two rules that look wrong until you know them:
   lives at the render sites on purpose. Folding it into the 90% ceiling changes
   every tile.
 
+**When a player reports is `PlaybackTimeline`** (`RivuletCore/Playback/`), used by all
+three apps for every server: it opens with `playing`, reports each 10 s, repeats `paused`,
+and goes quiet once stopped or ended by the server, until the next item. Players feed it
+transport changes and ticks and supply the send; do not put a timing rule in a player.
+
 **Changing watch state must repaint.** `.plexDataNeedsRefresh` is the live
 channel; all three UIKit surfaces observe it. Post it after the server call.
 The old optimistic path (`PlexDataStore.updateItemWatchStatus`,
 `.episodeWatchedStatusChanged`) is deleted; don't revive it, and don't
 reintroduce optimistic Continue Watching mutation from a shelf (reverted in
 `90bfd2b` for focus reasons).
+
+**The server counts a finished play itself.** PMS marks a title watched, clears its
+resume point and adds a play once a timeline passes its played threshold or first
+credits marker (measured on 1.43; a position under about a minute is never stored).
+A scrobble on top counts the play again: one viewing of an episode read as 3 plays.
+So each player asks first (`PlexNetworkManager.serverCountedPlay`, with the view count
+from when playback began) and scrobbles only when the server has not. After a scrobble,
+a `playing` report below the server's completion point brings the resume point back,
+which is why leaving at or after the credits mark also marks watched (`watchedMark`).
+
+Home answers the notification with Continue Watching and the promoted rows
+(`PlexDataStore.refreshAfterWatchStateChange`). The global `/hubs` (about 500 KB,
+over a second on the server) is fetched once a session for the hero's fallback, and
+each library's own hubs are refreshed by that library's page. A library or
+drill-in page that is off screen defers its refresh to `viewDidAppear`
+(`needsWatchStateRefresh`).
 
 ### Content margin and tile grid
 
@@ -922,6 +947,13 @@ tvOS's, and the other two are SwiftUI in `RivuletiOS/Photos/` and `RivuletMac/Ph
     upscales, both apply EXIF rotation. No size parameters means a full-resolution re-encode.
   - Server limits: HEIC is not indexed (0 of 4), `isFolder` is not an `/Items` parameter, and
     the legacy `X-Emby-Token` header answers 401 (the client sends `Authorization: MediaBrowser`).
+
+### Folders
+
+A video library can be browsed as it sits on disk, on all three apps. `MediaLibrary.offersFolders(on:)`
+decides where (any Plex movie or TV library, and every library that `browsesByFolder`); `FolderListing`
+in `RivuletCore/Folders/` is the one listing. A library with no metadata opens on Folders but always keeps
+its title grid and sort one pick away: folders-only (the 10-19 design) hid sorting from large libraries.
 
 ### iCloud sync
 
@@ -1118,6 +1150,11 @@ updates as the user moves focus between rows.
 ### Image Loading
 
 UIKit surfaces load remote images through `ImageCacheManager` (Music: `MusicChrome.loadArtwork`).
+`.thumb`, the default tier, asks the server for a copy fitted inside 900 px (`ArtworkSizing` in
+RivuletCore: the Plex photo transcoder at quality 95, `MaxWidth`/`MaxHeight` on Jellyfin and Emby)
+and falls back to the file itself when the server will not size it. `.full` and `.logo` download
+the file. So a `.thumb` load does not warm a later `.full` read of the same artwork: call
+`warmOriginal` for that. Measured on PMS 1.43: 39 posters were 37.9 MB as files and 8.7 MB sized.
 The remaining SwiftUI views use `CachedAsyncImage`:
 ```swift
 CachedAsyncImage(url: imageURL) { phase in
@@ -1325,6 +1362,14 @@ The Plex Discover API uses three different hosts:
 | Mutations | Resolve external GUID → discover `ratingKey` via matches endpoint first, then PUT actions |
 
 ## Plex server API gotchas
+
+**`getFullMetadata`, `getChildren` and `getAllLeaves` share a read for 10 seconds**
+(`RecentReads` in `PlexNetworkManager`), because a detail page asks for one title from
+several places at once and Play asks again. Every write in `PlexNetworkManager` calls
+`forgetRecentReads()` on its way out; so do `PlexProgressReporter`, the tvOS
+`.plexDataNeedsRefresh` observer in `PlexDataStore`, and `BrowseStore.watchStateDidChange`.
+A new write endpoint, or a write that goes around the manager, must call it too, or the
+page that repaints after the write shows the old state.
 
 **Search through `/hubs/search`, never the legacy `/search`.** Measured on PMS 1.43.5:
 `/search` caps each type at 15, so "christmas" returned 15 home videos and no film from

@@ -93,6 +93,8 @@ final class MediaDetailChromeView: UIView {
 
     /// The episode the Play pill names, shown in place of a show's synopsis.
     private var episodeDescription: (prefix: String, body: String)?
+    /// That episode's file, for a show or season's quality badges: the show itself has none.
+    private var playTargetSource: MediaSource?
 
     /// Sizes the logo view to the image's aspect, since `.scaleAspectFit` centres the glyphs
     /// and would push them right of the metadata's leading edge.
@@ -356,6 +358,7 @@ final class MediaDetailChromeView: UIView {
         item = nil
         detail = nil
         episodeDescription = nil
+        playTargetSource = nil
         if let prev = logoAspectConstraint {
             prev.isActive = false
             logoAspectConstraint = nil
@@ -435,6 +438,7 @@ final class MediaDetailChromeView: UIView {
         pendingLoads = 0
         readyWaiters = []
         episodeDescription = nil
+        playTargetSource = nil
 
         titleLogoImageView.image = nil
         titleFallbackLabel.text = nil
@@ -560,18 +564,20 @@ final class MediaDetailChromeView: UIView {
                   self.loadToken == token
             else { return }
             self.setPlayTarget(episode)
-            await self.showEpisodeDescription(for: episode, page: item.kind, token: token)
+            // One fetch for both: the episode's file names the badges, and its overview fills a bare list item's.
+            let episodeDetail = await Self.fetchDetail(episode.ref)
+            guard self.loadToken == token else { return }
+            // A failed fetch keeps the badges already shown.
+            if let source = episodeDetail?.primarySource { self.playTargetSource = source }
+            if let shown = self.item { self.rebuildQualityRow(item: shown, detail: self.detail) }
+            self.showEpisodeDescription(for: episode, detail: episodeDetail, page: item.kind)
         }
     }
 
-    /// Swaps the synopsis for the named episode's (one fetch when the episode lacks an overview).
-    private func showEpisodeDescription(for episode: MediaItem, page: MediaKind, token: UInt64) async {
+    /// Swaps the synopsis for the named episode's, from its detail when the list item lacks an overview.
+    private func showEpisodeDescription(for episode: MediaItem, detail episodeDetail: MediaItemDetail?, page: MediaKind) {
         var overview = episode.overview
-        if overview?.isEmpty != false,
-           EpisodePicker.episodeDescription(for: episode, overview: "x", on: page) != nil {
-            overview = await Self.fetchDetail(episode.ref)?.item.overview
-        }
-        guard loadToken == token else { return }
+        if overview?.isEmpty != false { overview = episodeDetail?.item.overview }
         episodeDescription = EpisodePicker.episodeDescription(for: episode, overview: overview, on: page)
         if let item, let detail { renderDescription(item: item, detail: detail) }
     }
@@ -961,8 +967,9 @@ final class MediaDetailChromeView: UIView {
                                   alpha: Self.qualityRowAlpha).forEach(qualityRow.addArrangedSubview)
         }
 
-        for badge in Self.calmBadges(detail?.primarySource) {
-            qualityRow.addArrangedSubview(Self.makeBadge(badge, alpha: Self.qualityRowAlpha, filled: badge == "4K"))
+        for badge in (detail?.primarySource ?? playTargetSource)?.detailBadges ?? [] {
+            qualityRow.addArrangedSubview(Self.makeBadge(badge, alpha: Self.qualityRowAlpha,
+                                                         filled: MediaSource.filledBadges.contains(badge)))
         }
     }
 
@@ -1006,18 +1013,6 @@ final class MediaDetailChromeView: UIView {
             views.append(ageStack)
         }
         return views
-    }
-
-    /// The row's quality badges, kept short: 4K only, every range badge (DV, HDR10+ ...), and audio only
-    /// when it is object audio.
-    static func calmBadges(_ source: MediaSource?) -> [String] {
-        guard let source else { return [] }
-        var badges = source.resolutionBadge == "4K" ? ["4K"] : []
-        badges += source.rangeBadges
-        if let audio = source.audioBadge {
-            if audio.hasSuffix("Atmos") { badges.append("Atmos") } else if audio.hasPrefix("DTS-X") { badges.append("DTS:X") }
-        }
-        return badges
     }
 
     /// An emoji as the score's glyph (tomato when fresh at 60% and up, nauseated face when rotten,

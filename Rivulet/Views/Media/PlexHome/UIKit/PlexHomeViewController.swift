@@ -2077,6 +2077,10 @@ final class PlexHomeViewController: UIViewController {
         applyPendingPreviewRestoreIfNeeded()
         nudgeInitialHeroFocusIfNeeded()
         refreshOnReappearIfNeeded()
+        if needsWatchStateRefresh {
+            needsWatchStateRefresh = false
+            Task { await refreshPageAfterWatchStateChange() }
+        }
         refreshYearInReview()
         if !isDrillInPage { HalloweenBats.showIfHalloween(in: view) }
         if let window = view.window {
@@ -2099,6 +2103,31 @@ final class PlexHomeViewController: UIViewController {
         // Only a real dismissal. A carousel presented over the collection page
         // (.overFullScreen) never makes it disappear at all.
         if isBeingDismissed { onDismiss?() }
+    }
+
+    /// Set when a watch-state change arrived while this page was off screen.
+    private var needsWatchStateRefresh = false
+
+    /// Library and drill-in pages after a watch-state change: repaint badges and progress.
+    private func refreshPageAfterWatchStateChange() async {
+        switch mode {
+        case .library:
+            // Repaint badges (show unwatched counts, #333). The
+            // reload bumps the generation, which discards an
+            // in-flight letter count; ask again.
+            reloadLoadedGridPages()
+            loadAlphabetIndex()
+            await refreshThisLibraryHubs()
+        case .collection, .playlist, .playlists, .favorites:
+            // Playback and detail-page watch changes: re-request
+            // the loaded pages so badges and progress repaint.
+            // A playlist page also picks up entry edits; the grid, created and deleted lists.
+            // Mid-move a reload would reorder the grid under the held tile: run it after.
+            if entryMove?.isMoving == true { refreshAfterMove = true; return }
+            reloadLoadedGridPages()
+        case .home, .discover, .search, .watchlist:
+            break
+        }
     }
 
     /// Nonblocking stale-while-revalidate whenever the home surface comes back
@@ -3452,25 +3481,18 @@ final class PlexHomeViewController: UIViewController {
                     case .watchlist:
                         break  // playback state doesn't change what is on the watchlist
                     case .home:
-                        await self.dataStore.refreshHubs()
-                        await self.dataStore.refreshLibraryHubs()
+                        await self.dataStore.refreshAfterWatchStateChange()
                         if self.enablePersonalizedRecommendations {
                             await self.refreshRecommendations(force: true)
                         }
-                    case .library:
-                        // Repaint badges (show unwatched counts, #333). The
-                        // reload bumps the generation, which discards an
-                        // in-flight letter count; ask again.
-                        self.reloadLoadedGridPages()
-                        self.loadAlphabetIndex()
-                        await self.refreshThisLibraryHubs()
-                    case .collection, .playlist, .playlists, .favorites:
-                        // Playback and detail-page watch changes: re-request
-                        // the loaded pages so badges and progress repaint.
-                        // A playlist page also picks up entry edits; the grid, created and deleted lists.
-                        // Mid-move a reload would reorder the grid under the held tile: run it after.
-                        if self.entryMove?.isMoving == true { self.refreshAfterMove = true; return }
-                        self.reloadLoadedGridPages()
+                    case .library, .collection, .playlist, .playlists, .favorites:
+                        // A page nobody can see (another tab, under the player) waits
+                        // until it is shown again: see `viewDidAppear`.
+                        guard self.viewIfLoaded?.window != nil else {
+                            self.needsWatchStateRefresh = true
+                            return
+                        }
+                        await self.refreshPageAfterWatchStateChange()
                     }
                 }
             }
@@ -3539,6 +3561,15 @@ final class PlexHomeViewController: UIViewController {
     /// The list the hero shows, as Home last built it.
     private var listHeroItems: [MediaItem] = []
     private var lastHeroSources = PlexHomeViewController.heroSourcesSignature
+    /// The settings a library page's snapshot reads. An unrelated defaults write must not
+    /// rebuild a snapshot that holds every slot of the library.
+    private var librarySnapshotSettings: [Bool] {
+        let defaults = UserDefaults.standard
+        return [showHomeHero,
+                (defaults.object(forKey: "showLibraryRecentRows") as? Bool) ?? true,
+                (defaults.object(forKey: "showLibraryRecommendations") as? Bool) ?? true]
+    }
+    private var lastLibrarySnapshotSettings: [Bool] = []
     /// The watchlist's first entries mapped to library or TMDB items, and the entry ids they came from.
     private var watchlistHeroItems: [MediaItem] = []
     private var watchlistHeroSourceIDs: [String]?
@@ -3673,8 +3704,12 @@ final class PlexHomeViewController: UIViewController {
                 // or the surface is left blank with no focusable content.
                 if case .watchlist = self.mode { self.updateHomeState() }
                 // Only the row's leading tiles are worth prewarming; the grid's
-                // cells fetch their own art as they scroll into view.
-                self.prewarmWatchlistArtwork(Array(items.prefix(20)))
+                // cells fetch their own art as they scroll into view. Home and the
+                // Watchlist page are the only places that draw it.
+                switch self.mode {
+                case .home, .watchlist: self.prewarmWatchlistArtwork(Array(items.prefix(20)))
+                default: break
+                }
             }
             .store(in: &dataStoreObservers)
 
@@ -3721,6 +3756,7 @@ final class PlexHomeViewController: UIViewController {
     /// screen. `UserDefaults.didChangeNotification` fires once per change.
     /// We just re-evaluate the relevant subsystem; no need to filter by key.
     private func observeUserDefaults() {
+        lastLibrarySnapshotSettings = librarySnapshotSettings
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -3758,7 +3794,11 @@ final class PlexHomeViewController: UIViewController {
                 // on a re-apply. Cheap: the diffable snapshot is a no-op when
                 // the row set is unchanged.
                 if case .library = self.mode {
-                    self.applySnapshot(animated: false)
+                    let settings = self.librarySnapshotSettings
+                    if settings != self.lastLibrarySnapshotSettings {
+                        self.lastLibrarySnapshotSettings = settings
+                        self.applySnapshot(animated: false)
+                    }
                     // A provider library's hero skips selectHeroItemsIfNeeded,
                     // so a hero switched on here needs its backdrop. Free when
                     // the URL is unchanged.
@@ -5658,8 +5698,10 @@ final class PlexHomeViewController: UIViewController {
                 loadingThumbImage: thumbImage,
                 preferredMediaID: mediaID
             )
+            // The full refresh follows `.plexDataNeedsRefresh`, which the player posts once the
+            // server has the final position. This one only covers a page with no Home behind it.
             PlayerPresenter.present(viewModel: viewModel, from: self, onDismiss: { [weak self] in
-                Task { await self?.dataStore.refreshHubs() }
+                Task { await self?.dataStore.refreshContinueWatchingIfStale() }
             })
         }
     }
@@ -5699,11 +5741,11 @@ final class PlexHomeViewController: UIViewController {
     }
 
 
-    /// Detail for a MediaItem (tile-menu "More Info", "Go to"): the season page, the episode page,
-    /// the standalone expanded detail for everything else.
+    /// Detail for a MediaItem (tile-menu "More Info", "Go to"): a season's show, the episode page,
+    /// the standalone expanded detail for everything else. Only a season pill opens a season page.
     private func selectMediaItem(_ item: MediaItem) {
-        if item.kind == .season {
-            present(SeasonDetailViewController(season: item), animated: true)
+        if item.kind == .season, let showRef = item.parentRef {
+            PreviewCarouselViewController.openShowDetail(showRef, from: self)
         } else if item.kind == .episode {
             let page = MediaItemDetailPageViewController(
                 item: item,
@@ -6195,15 +6237,26 @@ final class PlexHomeViewController: UIViewController {
         sourceItemID: String,
         sourceIndexPath: IndexPath,
         sourceIndexMap: [Int: Int]? = nil,
-        sourceItemIDs: [String]? = nil
+        sourceItemIDs: [String]? = nil,
+        seasonsResolved: Bool = false
     ) {
-        // Skip Preview (#416): open the carousel's own expanded detail directly. An
-        // episode keeps its hero and Play, with the show's seasons below.
-        if SettingsStore.bool("skipPreviewCarousel", default: false) {
-            guard items.indices.contains(selectedIndex) else { return }
-            let item = items[selectedIndex]
-            if item.kind == .season { selectMediaItem(item) } else { presentStandaloneExpandedDetail(item) }
+        // A season tile opens its show (#608). Tiles keep their ids, so the morph still pairs them.
+        if !seasonsResolved, items.contains(where: { $0.kind == .season }) {
+            Task { @MainActor [weak self] in
+                let shows = await MediaProviderRegistry.shared.showsForSeasons(items)
+                self?.presentPreviewOverlay(
+                    items: shows, selectedIndex: selectedIndex, sourceRowID: sourceRowID,
+                    sourceItemID: sourceItemID, sourceIndexPath: sourceIndexPath,
+                    sourceIndexMap: sourceIndexMap, sourceItemIDs: sourceItemIDs, seasonsResolved: true)
+            }
             return
+        }
+        // Skip Preview (#416, #593): the tapped tile alone grows into its expanded detail.
+        // An episode keeps its hero and Play, with the show's seasons below.
+        let skipPreview = SettingsStore.bool("skipPreviewCarousel", default: false)
+        if skipPreview {
+            guard items.indices.contains(selectedIndex) else { return }
+            if items[selectedIndex].kind == .season { selectMediaItem(items[selectedIndex]); return }
         }
         // Capture the source cell's frame in window coordinates so the
         // entry-morph has something to interpolate from.
@@ -6215,7 +6268,12 @@ final class PlexHomeViewController: UIViewController {
         let entrySnapshots = previewEntrySnapshots(
             at: sourceIndexPath,
             itemIndexMap: sourceIndexMap
-        )
+        ).filter { !skipPreview || $0.itemIndex == selectedIndex }
+        // No tile to fly from: the blur-faded detail.
+        if skipPreview, entrySnapshots.isEmpty {
+            presentStandaloneExpandedDetail(items[selectedIndex])
+            return
+        }
 
         suppressPreviewPresentationFocusMemory()
         let carouselVC = PreviewCarouselViewController(
@@ -6225,6 +6283,7 @@ final class PlexHomeViewController: UIViewController {
             sourceTarget: sourceTarget,
             entrySnapshots: entrySnapshots,
             sourceItemIDs: sourceItemIDs,
+            opensExpanded: skipPreview,
             onPrepareDismiss: { [weak self] sourceTarget in
                 self?.preparePreviewRestoreForPendingDismiss(sourceTarget)
             },
@@ -6251,11 +6310,11 @@ final class PlexHomeViewController: UIViewController {
                     indexMap?[row] = cardIndex[id]
                 }
             }
-            let hiddenRow = self.previewHiddenRowID
+            let (hiddenRow, hiddenItem) = (self.previewHiddenRowID, self.previewHiddenItem)
             self.showPreviewTiles()
             let fresh = self.previewEntrySnapshots(
                 at: path, itemIndexMap: indexMap, afterScreenUpdates: true)
-            self.previewHiddenRowID = hiddenRow
+            (self.previewHiddenRowID, self.previewHiddenItem) = (hiddenRow, hiddenItem)
             self.applyPreviewTileHiding()
             return fresh
         }
@@ -6268,6 +6327,7 @@ final class PlexHomeViewController: UIViewController {
             // The flying cards are on screen now and stand in for the tiles.
             guard let self, carouselVC?.presentingViewController != nil, !entrySnapshots.isEmpty else { return }
             self.previewHiddenRowID = sourceRowID
+            self.previewHiddenItem = skipPreview ? sourceIndexPath.item : nil
             self.applyPreviewTileHiding()
         }
     }
@@ -6276,11 +6336,14 @@ final class PlexHomeViewController: UIViewController {
 
     /// Row whose tiles are hidden while the carousel flies them (nil: none).
     private var previewHiddenRowID: String?
+    /// The one tile hidden in that row when only it flies (Skip Preview); nil hides the row.
+    private var previewHiddenItem: Int?
 
     /// Apply `previewHiddenRowID` to the realized shelf rows.
     private func applyPreviewTileHiding() {
         for case let row as ShelfRowCell in collectionView.visibleCells {
             let section = collectionView.indexPath(for: row)?.section ?? -1
+            row.previewHiddenItem = previewHiddenItem
             row.tilesHiddenForPreview = previewHiddenRowID != nil
                 && sectionsSnapshot.indices.contains(section)
                 && sectionsSnapshot[section].id.raw == previewHiddenRowID
@@ -6289,6 +6352,7 @@ final class PlexHomeViewController: UIViewController {
 
     private func showPreviewTiles() {
         previewHiddenRowID = nil
+        previewHiddenItem = nil
         applyPreviewTileHiding()
     }
 
@@ -6895,6 +6959,7 @@ extension PlexHomeViewController: UICollectionViewDelegate {
         guard indexPath.section < sectionsSnapshot.count else { return }
         let section = sectionsSnapshot[indexPath.section]
         // A row coming back on screen follows the carousel's current state.
+        (cell as? ShelfRowCell)?.previewHiddenItem = previewHiddenItem
         (cell as? ShelfRowCell)?.tilesHiddenForPreview =
             previewHiddenRowID != nil && section.id.raw == previewHiddenRowID
         switch section.kind {

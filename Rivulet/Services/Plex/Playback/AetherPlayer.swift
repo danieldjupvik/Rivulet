@@ -140,10 +140,15 @@ final class AetherPlayer: PlayerProtocol {
     /// the torn-down session stays parked (clock intact, so the paused UI
     /// shows the true position) and play() performs the reload. Holds the
     /// background timestamp so the teardown-drain wait still applies.
-    private var pendingReloadSince: Date?
+    @Published private(set) var pendingReloadSince: Date?
 
     /// True while the engine is torn down awaiting Play: no video frame exists.
     var isParkedForReload: Bool { pendingReloadSince != nil }
+
+    /// `isParkedForReload` as it changes, for the pause screen's "no frame" state.
+    var isParkedForReloadPublisher: AnyPublisher<Bool, Never> {
+        $pendingReloadSince.map { $0 != nil }.removeDuplicates().eraseToAnyPublisher()
+    }
 
     /// One file of a stacked title.
     struct PartFile {
@@ -190,7 +195,10 @@ final class AetherPlayer: PlayerProtocol {
     }
 
     private func wireUpPublishers() {
-        engine.$state
+        PlaybackTransportState.publisher(state: engine.$state.map(\.transportState).eraseToAnyPublisher(),
+                                         phase: engine.$playbackPhase.map(\.transportPhase).eraseToAnyPublisher(),
+                                         nativeReady: PlaybackTransportState.nativeReadiness(engine.$currentAVPlayer.eraseToAnyPublisher()))
+            .map(\.engineState)
             // Read `errorInfo` on the PUBLISHING turn, not after the hop.
             // AetherEngine assigns it immediately before `state` and clears it
             // when state leaves `.error`, so it is exact here and merely
@@ -200,7 +208,7 @@ final class AetherPlayer: PlayerProtocol {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] aetherState, errorInfo in
                 guard let self else { return }
-                self.engineIsPlaying = (aetherState == .playing)
+                self.engineIsPlaying = (self.engine.state == .playing)
                 // A load of another file (a stacked part, a version) drops the engine's speed; put it back.
                 if aetherState == .playing, self._playbackRate != 1 { self.engine.setRate(self._playbackRate) }
                 // Recompute BEFORE publishing the state so the view model's
@@ -673,6 +681,7 @@ final class AetherPlayer: PlayerProtocol {
     // MARK: - PlayerProtocol state
 
     var isPlaying: Bool { engine.state == .playing }
+    var playbackState: UniversalPlaybackState { stateSubject.value }
     var currentTime: TimeInterval { engine.currentTime + partStart }
     var duration: TimeInterval { stack?.duration ?? engine.duration }
 
@@ -1404,6 +1413,13 @@ final class AetherPlayer: PlayerProtocol {
         engine.bind(view: view)
     }
 
+    /// Fill the screen, cropping the picture, instead of fitting it (#589).
+    /// The engine keeps it across its internal host swaps.
+    var fillsScreen: Bool {
+        get { engine.videoGravity == .resizeAspectFill }
+        set { engine.videoGravity = newValue ? .resizeAspectFill : .resizeAspect }
+    }
+
     func unbind(surface: UIView) {
         guard let view = surface as? AetherPlayerView else { return }
         engine.unbind(view: view)
@@ -1802,5 +1818,44 @@ struct AetherAdvancedStats {
             && serverBytesSentLifetime == nil && serverRequestCount == nil
             && demuxerBytesFetched == nil && audioBridgeLiveBytes == nil
             && rssMb == nil
+    }
+}
+
+private extension PlaybackState {
+    var transportState: PlaybackTransportState.State {
+        switch self {
+        case .idle: .idle
+        case .loading: .loading
+        case .playing: .playing
+        case .paused: .paused
+        case .seeking: .seeking
+        case .ended: .ended
+        case .error(let message): .error(message)
+        }
+    }
+}
+
+private extension PlaybackTransportState.State {
+    var engineState: PlaybackState {
+        switch self {
+        case .idle: .idle
+        case .loading: .loading
+        case .playing: .playing
+        case .paused: .paused
+        case .seeking: .seeking
+        case .ended: .ended
+        case .error(let message): .error(message)
+        }
+    }
+}
+
+private extension PlaybackPhase {
+    var transportPhase: PlaybackTransportState.Phase {
+        switch self {
+        case .playing: .playing
+        case .paused: .paused
+        case .rebuffering: .rebuffering
+        default: .loading
+        }
     }
 }
