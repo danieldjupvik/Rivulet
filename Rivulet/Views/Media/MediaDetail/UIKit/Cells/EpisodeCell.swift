@@ -124,6 +124,7 @@ final class EpisodeCell: UIView {
     private let watchedGlyph = WatchedGlyphView()
 
     private let descriptionBlock = EpisodeDescriptionView()
+    private let descriptionFocusGuide = UIFocusGuide()
     /// Episode mode (two focus stops: thumb + description). False for trailers
     /// (single thumb stop, with the old whole-card frosted-panel focus look).
     private var splitFocus = false
@@ -255,6 +256,16 @@ final class EpisodeCell: UIView {
             self.notifyFocusKind()
         }
         addSubview(descriptionBlock)
+
+        addLayoutGuide(descriptionFocusGuide)
+        descriptionFocusGuide.preferredFocusEnvironments = [thumbnailCard]
+        descriptionFocusGuide.isEnabled = false
+        NSLayoutConstraint.activate([
+            descriptionFocusGuide.topAnchor.constraint(equalTo: descriptionBlock.topAnchor),
+            descriptionFocusGuide.leadingAnchor.constraint(equalTo: descriptionBlock.leadingAnchor),
+            descriptionFocusGuide.trailingAnchor.constraint(equalTo: descriptionBlock.trailingAnchor),
+            descriptionFocusGuide.bottomAnchor.constraint(equalTo: descriptionBlock.bottomAnchor),
+        ])
 
         // Glass highlight behind the metadata (added before the labels so it sits
         // behind them). Pinned to fill the description block; rounded + clipped.
@@ -418,6 +429,7 @@ final class EpisodeCell: UIView {
         subtypeIcon.isHidden = true
         splitFocus = true
         descriptionBlock.isFocusEligible = false
+        descriptionFocusGuide.isEnabled = layout == .stacked
         episodeLabel.text = Self.episodeLabel(for: episode, showSeasonPrefix: showSeasonPrefix).uppercased()
         titleLabel.text = episode.title.isEmpty ? String(localized: "Episode") : episode.title
         summaryLabel.text = episode.overview
@@ -463,6 +475,7 @@ final class EpisodeCell: UIView {
     func configure(searchResult item: MediaItem) {
         configure(episode: item)
         splitFocus = false
+        descriptionFocusGuide.isEnabled = false
         let show = item.seriesTitle
         if item.kind == .season {
             episodeLabel.text = show?.uppercased()
@@ -519,6 +532,7 @@ final class EpisodeCell: UIView {
         splitFocus = false
         setTrailerLayout(true)
         descriptionBlock.isFocusEligible = false
+        descriptionFocusGuide.isEnabled = false
         episodeLabel.text = nil
         episodeLabel.isHidden = true
         trailerTitleLabel.text = trailer.title
@@ -615,6 +629,7 @@ final class EpisodeCell: UIView {
         guard splitFocus else { descriptionBlock.isFocusEligible = false; return }
         let stayingInside = next.map { $0.isDescendant(of: self) } ?? false
         descriptionBlock.isFocusEligible = thumbFocused || descFocused || stayingInside
+        descriptionFocusGuide.isEnabled = layout == .stacked && !descriptionBlock.isFocusEligible
     }
 
     private func notifyFocusKind() {
@@ -640,6 +655,7 @@ final class EpisodeCell: UIView {
         thumbFocused = false
         descFocused = false
         descriptionBlock.isFocusEligible = false
+        descriptionFocusGuide.isEnabled = splitFocus && layout == .stacked
         descriptionGlass.backgroundColor = .clear
         descriptionGlass.effect = nil
     }
