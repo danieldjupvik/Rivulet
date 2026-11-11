@@ -57,7 +57,7 @@ enum EmbyPhotoMapper {
     }
 
     /// A photo's PremiereDate is the camera's wall clock stamped Z, and DateCreated carries the same
-    /// stamp: read its day in the device's zone. Without EXIF only DateCreated is set, and it and a
+    /// stamp: read its day in `zone`, the device's. Without EXIF only DateCreated is set, and it and a
     /// clip's dates are real instants.
     static func date(_ dto: EmbyItem, kind: PhotoItem.Kind, in zone: TimeZone = .current) -> Date? {
         if kind == .photo, let taken = dto.premiereDate, !taken.hasPrefix("0001-"),

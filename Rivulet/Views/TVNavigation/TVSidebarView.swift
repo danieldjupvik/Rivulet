@@ -57,6 +57,8 @@ struct TVSidebarView: View {
     /// The setup landing was finished. Unset, an install that already has a source counts as set up.
     @AppStorage("setupComplete") private var setupComplete = SetupLandingViewController.hasAnySource
     @State private var showWhatsNew = false
+    /// The builds whose notes the launch What's New shows, newest first.
+    @State private var whatsNewVersions: [String] = []
     @State private var didApplyDebugLaunch = false
 
     @Namespace private var contentNamespace
@@ -642,8 +644,7 @@ struct TVSidebarView: View {
             // The shell caches per `SidebarTab`, so each library key gets its
             // own controller.
             if let lib = dataStore.libraries.first(where: { $0.key == key }) {
-                if lib.hasNoMetadataAgent { return FolderLibraryViewController(plex: lib) }
-                if lib.isVideoLibrary { return PlexLibraryModeViewController(library: lib) }
+                if lib.isVideoLibrary { return LibraryModeViewController(plex: lib) }
                 if lib.isPhotoLibrary {
                     return PhotoLibraryViewController(title: lib.title) {
                         guard let provider = MediaProviderRegistry.shared.plexProvider,
@@ -658,11 +659,8 @@ struct TVSidebarView: View {
         case .providerLibrary(let providerID, let libraryID):
             // The same page as a Plex library, through the provider.
             if let library = serverStore.libraries.first(where: { $0.providerID == providerID && $0.id == libraryID }) {
-                if library.browsesByFolder {
-                    return FolderLibraryViewController(title: library.title) {
-                        (MediaProviderRegistry.shared.provider(for: library.providerID) as? any FolderProvider)
-                            .map { ($0, library) }
-                    }
+                if library.offersFolders(on: MediaProviderRegistry.shared.provider(for: library.providerID)) {
+                    return LibraryModeViewController(provider: library)
                 }
                 if library.kind == .photos {
                     return PhotoLibraryViewController(title: library.title, source: PhotoListing.source(for: library))
@@ -769,7 +767,7 @@ struct TVSidebarView: View {
     /// the fresh-launch "What's New", instead of a bespoke SwiftUI dialog.
     private func presentWhatsNewPopup() {
         guard let top = Self.topPresentedViewController() else { showWhatsNew = false; return }
-        let popup = SettingsContent.makeChangelogPopup()
+        let popup = SettingsContent.makeChangelogPopup(versions: whatsNewVersions)
         popup.onDismiss = { showWhatsNew = false }
         top.present(popup, animated: true)
     }
@@ -835,8 +833,8 @@ struct TVSidebarView: View {
     }
 
     private func presentDetail(_ item: MediaItem, from top: UIViewController) {
-        if item.kind == .season {
-            top.present(SeasonDetailViewController(season: item), animated: true)
+        if item.kind == .season, let showRef = item.parentRef {
+            PreviewCarouselViewController.openShowDetail(showRef, from: top)
         } else if item.kind == .episode {
             let page = MediaItemDetailPageViewController(
                 item: item,
@@ -931,7 +929,10 @@ struct TVSidebarView: View {
 
         if current != lastSeenBuild {
             // A new install sets up instead; What's New is for updates.
-            if setupComplete, WhatsNewView.features(for: current) != nil {
+            let versions = WhatsNewRange.versions(WhatsNewView.changelogs.map(\.version),
+                                                  current: current, lastSeen: lastSeenBuild)
+            if setupComplete, !versions.isEmpty {
+                whatsNewVersions = versions
                 showWhatsNew = true
             }
             lastSeenBuild = current

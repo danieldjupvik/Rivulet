@@ -411,7 +411,7 @@ enum SettingsContent {
             select: { TrackIntentStore.audioIntent = nil }))
         return [account] + ([TrackLanguage.original] + languages).map { code in
             SettingsRowItem(id: "al_\(code)", verbatim: TrackLanguage.audioSettingName(code), kind: .option(
-                isSelected: { TrackIntentStore.audioIntent.map { TrackLanguage.preferenceCode($0.language) } == code },
+                isSelected: { TrackIntentStore.audioIntent.map { TrackLanguage.normalize($0.language) } == code },
                 select: { TrackIntentStore.audioIntent = AudioIntent(language: code) }))
         }
     }
@@ -419,7 +419,7 @@ enum SettingsContent {
     private static var subtitleLanguagePicker: [SettingsRowItem] {
         TrackLanguage.sortedChoices.map { code in
             SettingsRowItem(id: "sl_\(code)", verbatim: TrackLanguage.displayName(code), kind: .option(
-                isSelected: { TrackLanguage.preferenceCode(TrackIntentStore.subtitleLanguage) == code },
+                isSelected: { TrackLanguage.normalize(TrackIntentStore.subtitleLanguage) == code },
                 select: { TrackIntentStore.setSubtitles(language: code) }))
         }
     }
@@ -610,7 +610,7 @@ enum SettingsContent {
                             })),
             SettingsRowItem(id: "autoplayLimit", title: "Limit",
                             kind: .navigationValue(.autoplayLimitPicker, value: { AutoplayLimit.current.description })),
-            SettingsRowItem(id: "atTheCredits", title: "At the Credits", kind: .cycle(
+            SettingsRowItem(id: "atTheCredits", title: "Credits", kind: .cycle(
                 value: { CreditsBehavior.current().label },
                 next: {
                     let all = CreditsBehavior.allCases
@@ -1408,7 +1408,7 @@ enum SettingsContent {
             SettingsRowItem(id: "forceRefresh", title: "Force Refresh Libraries",
                             kind: .action(destructive: false, handler: { vc in
                 presentConfirm(on: vc, title: "Force Refresh Libraries?",
-                               message: "This clears the metadata cache and reloads library content from your Plex server.",
+                               message: "This clears the metadata cache and reloads your libraries from all your servers.",
                                confirmTitle: "Refresh", destructive: false) {
                     Task {
                         await CacheManager.shared.clearAllCache()
@@ -1651,20 +1651,13 @@ enum SettingsContent {
         vc.present(popup, animated: true)
     }
 
-    /// Builds the current-build changelog glass popup (or the most recent
-    /// changelog entry if this build has none, so it's never blank). Used by
-    /// the fresh-launch "What's New". Select/Menu dismiss; content-sized.
-    static func makeChangelogPopup() -> InfoPopupViewController {
-        // The changelog is keyed on the build-qualified version ("1.0.0 (50)").
-        let short = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
-        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "1"
-        let qualified = "\(short) (\(build))"
-        let version = WhatsNewView.features(for: qualified) != nil
-            ? qualified
-            : (WhatsNewView.changelogs.first?.version ?? qualified)
-        let features = WhatsNewView.features(for: version) ?? []
-        return InfoPopupViewController(content: InfoPopupContent.changelog(version: version, features: features),
-                                       width: 1000, scrollable: true)
+    /// The fresh-launch "What's New": every build in `versions` (those since the last one
+    /// seen), or the newest entry if empty, so it's never blank. Select/Menu dismiss.
+    static func makeChangelogPopup(versions: [String]) -> InfoPopupViewController {
+        let entries = versions.isEmpty
+            ? Array(WhatsNewView.changelogs.prefix(1))
+            : WhatsNewView.changelogs.filter { versions.contains($0.version) }
+        return InfoPopupViewController(content: InfoPopupContent.changelog(entries), width: 1000, scrollable: true)
     }
 
     /// Licenses & Legal renders into the app's contained glass popup (not a

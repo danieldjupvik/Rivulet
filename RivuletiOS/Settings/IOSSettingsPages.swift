@@ -50,7 +50,7 @@ struct IOSLibrarySettingsView: View {
 struct IOSPlaybackSettingsView: View {
     @AppStorage(SkipLengthKeys.back) private var skipBackwardSeconds = 10
     @AppStorage(SkipLengthKeys.forward) private var skipForwardSeconds = 30
-    /// Observed so the skip pickers redraw (and At the Credits); read and written through `MarkerSkipMode`.
+    /// Observed so the skip pickers redraw (and Credits); read and written through `MarkerSkipMode`.
     @AppStorage("autoSkipIntro") private var autoSkipIntro = false
     @AppStorage("autoSkipRecap") private var autoSkipRecap = false
     @AppStorage(CreditsBehavior.storageKey) private var atTheCredits = ""
@@ -103,13 +103,13 @@ struct IOSPlaybackSettingsView: View {
             }
 
             Section {
-                Picker("At the Credits", selection: Binding(
+                Picker("Credits", selection: Binding(
                     get: { CreditsBehavior.current() }, set: { CreditsBehavior.set($0) }
                 )) {
                     ForEach(CreditsBehavior.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
             } footer: {
-                Text("Up Next opens the next episode card when the credits start. Skip Button shows only Skip Credits, then Up Next opens at the end. Nothing waits for the end. Countdown decides autoplay.")
+                Text("Up Next opens the next episode card when the credits start. Skip Button shows only Skip Credits, then Up Next opens at the end. Off waits for the end. Countdown decides autoplay.")
             }
 
             Section {
@@ -133,7 +133,7 @@ struct IOSPlaybackSettingsView: View {
         let subtitlesOn = SubtitleMode.current != .off
         return Section {
             Picker("Audio Language", selection: trackBinding(
-                get: { TrackIntentStore.audioIntent.map { TrackLanguage.preferenceCode($0.language) } ?? "" },
+                get: { TrackIntentStore.audioIntent.map { TrackLanguage.normalize($0.language) } ?? "" },
                 set: { TrackIntentStore.audioIntent = $0.isEmpty ? nil : AudioIntent(language: $0) }
             )) {
                 Text(TrackLanguage.audioSettingName(nil)).tag("")
@@ -146,7 +146,7 @@ struct IOSPlaybackSettingsView: View {
                 ForEach(SubtitleMode.choices, id: \.self) { Text($0.title).tag($0) }
             }
             Picker("Subtitle Language", selection: trackBinding(
-                get: { TrackLanguage.preferenceCode(TrackIntentStore.subtitleLanguage) },
+                get: { TrackLanguage.normalize(TrackIntentStore.subtitleLanguage) },
                 set: { TrackIntentStore.setSubtitles(language: $0) }
             )) {
                 ForEach(TrackLanguage.sortedChoices, id: \.self) { Text(TrackLanguage.displayName($0)).tag($0) }

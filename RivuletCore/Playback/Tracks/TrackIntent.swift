@@ -123,8 +123,7 @@ enum TrackLanguage {
         case "hi", "hin", "hindi": return "hin"
         case "nl", "nld", "dut", "dutch": return "nld"
         case "sv", "swe", "swedish": return "swe"
-        case "no", "nor", "norwegian": return "nor"
-        case "nb", "nob", "norwegian bokmål": return "nob"
+        case "no", "nor", "nb", "nob", "norwegian", "norwegian bokmål": return "nor"
         case "da", "dan", "danish": return "dan"
         case "fi", "fin", "finnish": return "fin"
         case "pl", "pol", "polish": return "pol"
@@ -148,7 +147,7 @@ enum TrackLanguage {
     /// Languages offered in Settings, as normalized keys.
     static let choices = [
         "ara", "zho", "ces", "dan", "nld", "eng", "fin", "fra", "deu", "ell",
-        "heb", "hin", "hun", "ita", "jpn", "kor", "nob", "pol", "por", "rus",
+        "heb", "hin", "hun", "ita", "jpn", "kor", "nor", "pol", "por", "rus",
         "spa", "swe", "tha", "tur", "ukr", "vie"
     ]
 
@@ -157,19 +156,13 @@ enum TrackLanguage {
     static var device: String { language(fromPreferred: Locale.preferredLanguages) }
 
     static func language(fromPreferred preferred: [String]) -> String {
-        let code = preferenceCode(preferred.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier })
+        let code = normalize(preferred.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier })
         return code.isEmpty ? english : code
     }
 
-    static func preferenceCode(_ code: String?) -> String {
-        let normalized = normalize(code)
-        return normalized == "nor" ? "nob" : normalized
-    }
-
-    static func displayName(_ code: String, locale: Locale = .current) -> String {
-        let preference = preferenceCode(code)
-        let alpha2 = Locale.LanguageCode(preference).identifier(.alpha2) ?? preference
-        return locale.localizedString(forLanguageCode: alpha2)?.capitalized ?? code
+    static func displayName(_ code: String) -> String {
+        let alpha2 = Locale.LanguageCode(code).identifier(.alpha2) ?? code
+        return Locale.current.localizedString(forLanguageCode: alpha2)?.capitalized ?? code
     }
 
     /// False for missing, undetermined and "no linguistic content" tags.
@@ -183,8 +176,8 @@ enum TrackLanguage {
     }
 
     static func matches(_ a: String?, _ b: String?) -> Bool {
-        let na = preferenceCode(a)
-        let nb = preferenceCode(b)
+        let na = normalize(a)
+        let nb = normalize(b)
         guard !na.isEmpty, !nb.isEmpty else { return false }
         return na == nb
     }
