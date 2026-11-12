@@ -22,8 +22,10 @@ final class PosterCell: UICollectionViewCell {
     private let sourceBadge = SourceBadgeView(style: .onArtwork)
     /// Plex edition ("Director's Cut"), so two editions sharing a poster tell apart.
     private let editionBadge = SourceBadgeView(style: .onArtwork)
-    /// Top-leading column: server badge, then edition badge.
+    /// Top-leading column: the server badge.
     private let topBadges = UIStackView()
+    /// Top-trailing column: unwatched count, then edition badge.
+    private let trailingBadges = UIStackView()
     private let failureIcon = UIImageView()
     /// The title on the failure card, so an item with no artwork is still named.
     private let failureTitle = UILabel()
@@ -144,18 +146,22 @@ final class PosterCell: UICollectionViewCell {
         progressInfoBar.isHidden = true; bottomInfoBlur?.isHidden = true
         overlayContainer.addSubview(progressInfoBar)
 
-        // Watched badge: top-trailing, 10pt inset.
-        watchedBadge.translatesAutoresizingMaskIntoConstraints = false
+        // Unwatched count then edition badge: top-trailing, 10pt inset. Hidden badges collapse.
         watchedBadge.isHidden = true
-        overlayContainer.addSubview(watchedBadge)
+        trailingBadges.translatesAutoresizingMaskIntoConstraints = false
+        trailingBadges.axis = .vertical
+        trailingBadges.alignment = .trailing
+        trailingBadges.spacing = 6
+        trailingBadges.addArrangedSubview(watchedBadge)
+        trailingBadges.addArrangedSubview(editionBadge)
+        overlayContainer.addSubview(trailingBadges)
 
-        // Server badge then edition badge: top-leading, 10pt inset. Hidden badges collapse.
+        // Server badge: top-leading, 10pt inset.
         topBadges.translatesAutoresizingMaskIntoConstraints = false
         topBadges.axis = .vertical
         topBadges.alignment = .leading
         topBadges.spacing = 6
         topBadges.addArrangedSubview(sourceBadge)
-        topBadges.addArrangedSubview(editionBadge)
         overlayContainer.addSubview(topBadges)
 
         // Failure icon: centred. Hidden by default; visible only when the
@@ -202,8 +208,9 @@ final class PosterCell: UICollectionViewCell {
             progressInfoBar.centerYAnchor.constraint(equalTo: overlayContainer.bottomAnchor,
                                                      constant: -MediaProgressInfoBar.centerFromBottom),
 
-            watchedBadge.topAnchor.constraint(equalTo: overlayContainer.topAnchor, constant: 10),
-            watchedBadge.trailingAnchor.constraint(equalTo: overlayContainer.trailingAnchor, constant: -10),
+            trailingBadges.topAnchor.constraint(equalTo: overlayContainer.topAnchor, constant: 10),
+            trailingBadges.trailingAnchor.constraint(equalTo: overlayContainer.trailingAnchor, constant: -10),
+            trailingBadges.leadingAnchor.constraint(greaterThanOrEqualTo: overlayContainer.leadingAnchor, constant: 10),
             topBadges.topAnchor.constraint(equalTo: overlayContainer.topAnchor, constant: 10),
             topBadges.leadingAnchor.constraint(equalTo: overlayContainer.leadingAnchor, constant: 10),
             topBadges.trailingAnchor.constraint(lessThanOrEqualTo: overlayContainer.trailingAnchor, constant: -10),
@@ -289,9 +296,9 @@ final class PosterCell: UICollectionViewCell {
     func configure(item: MediaItem) {
         sourceBadge.text = nil
         setSquare(item.isMusic == true)
-        // Episodes prefer the grandparent (show) poster so hub rows render
-        // show art instead of letterboxed episode stills, matching the Plex path.
-        let url = item.grandparentArtwork?.poster ?? item.artwork.poster
+        // Episodes and seasons show the show's poster, matching the Plex path.
+        let url = item.grandparentArtwork?.poster
+            ?? (item.kind == .season ? item.parentArtwork?.poster : nil) ?? item.artwork.poster
         failureTitleText = item.title
         setEdition(item.editionTitle)
         loadImage(from: url, failureKind: item.kind)
@@ -306,7 +313,7 @@ final class PosterCell: UICollectionViewCell {
     var sourceBadgeText: String? { sourceBadge.isHidden ? nil : sourceBadge.text }
 
     private func setEdition(_ edition: String?) {
-        editionBadge.text = edition?.isEmpty == false ? edition : nil
+        editionBadge.text = MediaItem.shortEdition(edition)
     }
 
     /// The edition badge's text while it shows (tests).
@@ -500,11 +507,12 @@ final class PosterCell: UICollectionViewCell {
         guard let serverURL = PlexAuthManager.shared.selectedServerURL,
               let token = PlexAuthManager.shared.selectedServerToken
         else { return nil }
-        // Episodes prefer the show (grandparent) thumb so Recently-Added
-        // episode rows render show posters, not letterboxed episode stills.
+        // Episodes and seasons show the show's poster, so Recently Added rows read as shows.
         let path: String?
         if item.type == "episode" {
             path = item.grandparentThumb ?? item.parentThumb ?? item.thumb
+        } else if item.type == "season" {
+            path = item.parentThumb ?? item.thumb
         } else {
             path = item.thumb
         }

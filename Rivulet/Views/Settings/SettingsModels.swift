@@ -46,7 +46,7 @@ enum CrossfadeOption: String, CaseIterable, Hashable, CustomStringConvertible {
 
 enum SettingsPage: Hashable, CaseIterable {
     case root
-    case appearance, playback, music, liveTV, servers, about
+    case appearance, playback, music, liveTV, photos, servers, about
     case plex, plexServerDetail, jellyfin, emby, iptv, libraries, cache
     case homeRows
     case liveTVSourceDetail, liveTVFavorites
@@ -64,6 +64,7 @@ enum SettingsPage: Hashable, CaseIterable {
         case .playback: return String(localized: "Playback")
         case .music: return String(localized: "Music")
         case .liveTV: return String(localized: "Live TV")
+        case .photos: return String(localized: "Photos")
         case .servers: return String(localized: "Servers")
         case .about: return String(localized: "About")
         case .plex: return String(localized: "Plex")
@@ -100,46 +101,6 @@ enum SettingsPage: Hashable, CaseIterable {
         case .contentFilterWords: return String(localized: "Custom Words")
         }
     }
-}
-
-// MARK: - Autoplay Countdown
-
-enum AutoplayCountdown: Int, CaseIterable, CustomStringConvertible {
-    case off = 0
-    case fiveSeconds = 5
-    case tenSeconds = 10
-    case twentySeconds = 20
-
-    var description: String {
-        switch self {
-        case .off: return String(localized: "Off")
-        case .fiveSeconds: return String(localized: "5 seconds")
-        case .tenSeconds: return String(localized: "10 seconds")
-        case .twentySeconds: return String(localized: "20 seconds")
-        }
-    }
-}
-
-// MARK: - Autoplay Limit
-
-/// Episodes that may play in a row before Up Next waits for the remote.
-enum AutoplayLimit: Int, CaseIterable, CustomStringConvertible {
-    case off = 0
-    case two = 2
-    case three = 3
-    case four = 4
-    case five = 5
-
-    static let storageKey = "autoplayLimit"
-
-    static var current: AutoplayLimit {
-        AutoplayLimit(rawValue: UserDefaults.standard.integer(forKey: storageKey)) ?? .off
-    }
-
-    var description: String { self == .off ? String(localized: "Off") : String(localized: "\(rawValue) Episodes") }
-
-    /// Whether Up Next may count down after `count` episodes in a row.
-    func allowsAutoplay(afterEpisodesInARow count: Int) -> Bool { self == .off || count < rawValue }
 }
 
 // MARK: - Skip Length

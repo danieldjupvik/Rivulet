@@ -8,6 +8,8 @@ import SwiftUI
 struct IOSPlexActions {
     var play: (MediaItem) -> Void = { _ in }
     var playFromBeginning: (MediaItem) -> Void = { _ in }
+    /// Plays one file of the title (a `MediaSource` id) instead of the best.
+    var playVersion: (MediaItem, String) -> Void = { _, _ in }
     /// Plays a playlist from its current entry, then on through the rest.
     var playQueue: (PlayQueue<MediaItem>) -> Void = { _ in }
     /// Plays a video library's titles at random, unwatched only when the flag is set.
@@ -48,8 +50,8 @@ extension View {
 }
 
 private struct IOSPlexActionHost: ViewModifier {
-    @EnvironmentObject private var plex: IOSPlexSession
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var plex: PlexSession
+    @EnvironmentObject private var browse: BrowseStore
     @EnvironmentObject private var playback: IOSPlaybackController
     @EnvironmentObject private var downloads: IOSDownloadCenter
     @State private var preparingID: String?
@@ -64,6 +66,7 @@ private struct IOSPlexActionHost: ViewModifier {
             .environment(\.plexActions, IOSPlexActions(
                 play: { play($0) },
                 playFromBeginning: { play($0, fromBeginning: true) },
+                playVersion: { play($0, sourceID: $1) },
                 playQueue: playQueue,
                 shuffleLibrary: { library, unwatchedOnly in
                     shuffle(providerID: library.providerID, itemID: library.id) {
@@ -134,10 +137,10 @@ private struct IOSPlexActionHost: ViewModifier {
     }
 
     /// Plex items play through the Plex player path; Jellyfin and Emby items through the provider entry point.
-    private func play(_ item: MediaItem, fromBeginning: Bool = false) {
+    private func play(_ item: MediaItem, fromBeginning: Bool = false, sourceID: String? = nil) {
         guard IOSPlaybackGate.canPlay(item.ref), preparingID == nil else { return }
         guard item.ref.providerID.hasPrefix("plex:") else {
-            playback.play(item, fromBeginning: fromBeginning)
+            playback.play(item, fromBeginning: fromBeginning, sourceID: sourceID)
             return
         }
         guard serverIsKnown(item.ref) else { return }
@@ -146,7 +149,8 @@ private struct IOSPlexActionHost: ViewModifier {
             defer { preparingID = nil }
             do {
                 let target = try await plex.playableTarget(for: item.plexStub)
-                playback.play(try await plex.playback(for: target, fromBeginning: fromBeginning))
+                playback.play(try await plex.playback(
+                    for: target, fromBeginning: fromBeginning, version: sourceID.map(VersionChoice.source) ?? .best))
             } catch let error where isCancellationError(error) {
             } catch {
                 failure = (String(localized: "Couldn't Play"), error.localizedDescription)
@@ -276,7 +280,7 @@ extension View {
 private struct IOSPlexContextMenu: ViewModifier {
     let item: MediaItem
     let showsDetails: Bool
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var browse: BrowseStore
 
     func body(content: Content) -> some View {
         content.contextMenu {
@@ -298,7 +302,7 @@ struct IOSPlexItemMenu: View {
     var showsFavorite = true
     var showsDelete = true
     @Environment(\.plexActions) private var actions
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var browse: BrowseStore
     @EnvironmentObject private var downloads: IOSDownloadCenter
     @ObservedObject private var watchlist = PlexWatchlistService.shared
 

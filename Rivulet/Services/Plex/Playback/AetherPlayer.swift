@@ -140,10 +140,15 @@ final class AetherPlayer: PlayerProtocol {
     /// the torn-down session stays parked (clock intact, so the paused UI
     /// shows the true position) and play() performs the reload. Holds the
     /// background timestamp so the teardown-drain wait still applies.
-    private var pendingReloadSince: Date?
+    @Published private(set) var pendingReloadSince: Date?
 
     /// True while the engine is torn down awaiting Play: no video frame exists.
     var isParkedForReload: Bool { pendingReloadSince != nil }
+
+    /// `isParkedForReload` as it changes, for the pause screen's "no frame" state.
+    var isParkedForReloadPublisher: AnyPublisher<Bool, Never> {
+        $pendingReloadSince.map { $0 != nil }.removeDuplicates().eraseToAnyPublisher()
+    }
 
     /// One file of a stacked title.
     struct PartFile {
@@ -183,12 +188,17 @@ final class AetherPlayer: PlayerProtocol {
         // The engine otherwise uses system trust alone, so a server the API
         // session accepts would browse and never play (#337).
         EngineTLS.serverTrustEvaluator = { PlexCertificateDelegate.trustsServer($0) }
+        // Image subtitles are kept only as far as the delay stepper reaches.
+        engine.maximumSubtitleOffsetSeconds = SubtitleAdjustments.maxDelay
         wireUpPublishers()
         observeAppLifecycle()
     }
 
     private func wireUpPublishers() {
-        engine.$state
+        PlaybackTransportState.publisher(state: engine.$state.map(\.transportState).eraseToAnyPublisher(),
+                                         phase: engine.$playbackPhase.map(\.transportPhase).eraseToAnyPublisher(),
+                                         nativeReady: PlaybackTransportState.nativeReadiness(engine.$currentAVPlayer.eraseToAnyPublisher()))
+            .map(\.engineState)
             // Read `errorInfo` on the PUBLISHING turn, not after the hop.
             // AetherEngine assigns it immediately before `state` and clears it
             // when state leaves `.error`, so it is exact here and merely
@@ -198,7 +208,9 @@ final class AetherPlayer: PlayerProtocol {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] aetherState, errorInfo in
                 guard let self else { return }
-                self.engineIsPlaying = (aetherState == .playing)
+                self.engineIsPlaying = (self.engine.state == .playing)
+                // A load of another file (a stacked part, a version) drops the engine's speed; put it back.
+                if aetherState == .playing, self._playbackRate != 1 { self.engine.setRate(self._playbackRate) }
                 // Recompute BEFORE publishing the state so the view model's
                 // ".playing while still buffering" reconciliation sees the
                 // combined flag the moment a seek lands.
@@ -669,6 +681,7 @@ final class AetherPlayer: PlayerProtocol {
     // MARK: - PlayerProtocol state
 
     var isPlaying: Bool { engine.state == .playing }
+    var playbackState: UniversalPlaybackState { stateSubject.value }
     var currentTime: TimeInterval { engine.currentTime + partStart }
     var duration: TimeInterval { stack?.duration ?? engine.duration }
 
@@ -779,6 +792,9 @@ final class AetherPlayer: PlayerProtocol {
                             presentsHDR: engine.videoFormat != .sdr,
                             panelSupportsDolbyVision: AetherEngine.displayCapabilities.supportsDolbyVision)
     }
+    /// FEL or MEL for the current Profile 7 load, probed after it starts; nil otherwise.
+    private(set) var dolbyVisionEnhancementLayer: DolbyVisionEnhancementLayer?
+    private var enhancementLayerURL: URL?
     var sourceVideoCodecName: String? { engine.sourceVideoCodecName }
     /// "720p → 1080p (ML)" while the upscale stage runs; nil when it never started.
     var upscaleSummary: String? {
@@ -789,8 +805,6 @@ final class AetherPlayer: PlayerProtocol {
         let mlOnly = status.degraded || abs(status.sourceSize.height * CGFloat(ml) - status.targetSize.height) < 2
         return mlOnly ? "\(size) (ML)" : "\(size) (ML + MetalFX)"
     }
-    /// FEL or MEL for the current Profile 7 load; nil when the engine didn't classify it (FEL setting off, no DV panel).
-    private(set) var dolbyVisionEnhancementLayer: DolbyVisionEnhancementLayer?
 
     /// The start of a fullscreen live join, measured for issue #319. See
     /// LiveAVTelemetry.
@@ -1194,6 +1208,8 @@ final class AetherPlayer: PlayerProtocol {
             }
         }
         defer { if ownsLogHandler { EngineLog.handler = nil } }
+        // Read ahead as far as the engine's disk budget allows; live sizes its own window.
+        if !isLive { options.forwardBufferSegments = .max }
         // New content, so the previous item's aspect ratio describes nothing.
         // Reset HERE rather than when `currentItem` goes nil: the engine also
         // swaps its player for SAME-content reasons (audio track switch,
@@ -1204,6 +1220,7 @@ final class AetherPlayer: PlayerProtocol {
         // arrives.
         videoSize = .zero
         dolbyVisionEnhancementLayer = nil
+        enhancementLayerURL = url
         // New file: the previous track's script and fonts describe nothing,
         // even when the next episode repeats the same header and track id.
         assFonts = []
@@ -1232,11 +1249,29 @@ final class AetherPlayer: PlayerProtocol {
                 "fel_setting": felOn
             ])
         }
+        if engine.sourceDVProfile == 7, dolbyVisionEnhancementLayer == nil {
+            probeEnhancementLayer(url: url, headers: headers ?? [:])
+        }
         assFonts = engine.fontAttachments.map { LibassRenderer.Font(name: $0.filename, data: $0.data) }
         // The track may have been published during the load with no fonts;
         // republish so the renderer is built with them.
         assTrack = nil
         refreshASSTrack()
+    }
+
+    /// Reads the stream head once more for the RPU's el_type, off the start path.
+    private func probeEnhancementLayer(url: URL, headers: [String: String]) {
+        Task { [weak self] in
+            let layer = await Task.detached(priority: .utility) { () -> DolbyVisionEnhancementLayer? in
+                switch try? AetherEngine.probeDolbyVisionEnhancementLayer(url: url, options: LoadOptions(httpHeaders: headers)) {
+                case .fel: .full
+                case .mel: .minimal
+                default: nil
+                }
+            }.value
+            guard let self, self.enhancementLayerURL == url else { return }
+            self.dolbyVisionEnhancementLayer = layer
+        }
     }
 
     /// The engine's active subtitle track when it is ASS/SSA.
@@ -1376,6 +1411,13 @@ final class AetherPlayer: PlayerProtocol {
     func bind(surface: UIView) {
         guard let view = surface as? AetherPlayerView else { return }
         engine.bind(view: view)
+    }
+
+    /// Fill the screen, cropping the picture, instead of fitting it (#589).
+    /// The engine keeps it across its internal host swaps.
+    var fillsScreen: Bool {
+        get { engine.videoGravity == .resizeAspectFill }
+        set { engine.videoGravity = newValue ? .resizeAspectFill : .resizeAspect }
     }
 
     func unbind(surface: UIView) {
@@ -1776,5 +1818,44 @@ struct AetherAdvancedStats {
             && serverBytesSentLifetime == nil && serverRequestCount == nil
             && demuxerBytesFetched == nil && audioBridgeLiveBytes == nil
             && rssMb == nil
+    }
+}
+
+private extension PlaybackState {
+    var transportState: PlaybackTransportState.State {
+        switch self {
+        case .idle: .idle
+        case .loading: .loading
+        case .playing: .playing
+        case .paused: .paused
+        case .seeking: .seeking
+        case .ended: .ended
+        case .error(let message): .error(message)
+        }
+    }
+}
+
+private extension PlaybackTransportState.State {
+    var engineState: PlaybackState {
+        switch self {
+        case .idle: .idle
+        case .loading: .loading
+        case .playing: .playing
+        case .paused: .paused
+        case .seeking: .seeking
+        case .ended: .ended
+        case .error(let message): .error(message)
+        }
+    }
+}
+
+private extension PlaybackPhase {
+    var transportPhase: PlaybackTransportState.Phase {
+        switch self {
+        case .playing: .playing
+        case .paused: .paused
+        case .rebuffering: .rebuffering
+        default: .loading
+        }
     }
 }

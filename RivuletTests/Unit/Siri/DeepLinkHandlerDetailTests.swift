@@ -29,10 +29,35 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
         }
     }
 
+    func testExplicitStartOffsetSurvivesHeldLinkDelivery() async {
+        for startOffset in [83.25, 0] {
+            let handler = makeHandler { key, _ in self.metadata(key) }
+            let link = RivuletLink(.play, ratingKey: "9", startOffset: startOffset)
+            XCTAssertNil(handler.handle(link))
+            XCTAssertEqual(handler.heldLink, link)
+
+            handler.isShellReady = true
+            for _ in 0..<100 where handler.pendingPlayback == nil { await Task.yield() }
+            XCTAssertEqual(handler.pendingPlayback?.metadata.ratingKey, "9")
+            XCTAssertEqual(handler.pendingPlayback?.startOffset, startOffset)
+            XCTAssertNil(handler.heldLink)
+        }
+    }
+
+    func testPlexOffsetParsesMillisecondsAndRetainsGeneratedValue() throws {
+        let generated = try XCTUnwrap(RivuletLink(.play, ratingKey: "1", startOffset: 83.25).url)
+        let generatedItems = URLComponents(url: generated, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(generatedItems?.first(where: { $0.name == "offset" })?.value, "83250")
+        XCTAssertEqual(RivuletLink(url: generated)?.startOffset, 83.25)
+        XCTAssertEqual(RivuletLink(url: URL(string: "\(RivuletLink.scheme)://play?ratingKey=1&offset=823000")!)?.startOffset, 823)
+        XCTAssertEqual(RivuletLink(url: URL(string: "\(RivuletLink.scheme)://play?ratingKey=1&offset=0")!)?.startOffset, 0)
+        XCTAssertNil(RivuletLink(url: URL(string: "\(RivuletLink.scheme)://play?ratingKey=1")!)?.startOffset)
+    }
+
     func testBuiltURLShape() {
         XCTAssertEqual(RivuletLink(.detail, ratingKey: "12345").url?.absoluteString,
-                       "rivulet-lab://detail?ratingKey=12345")
-        XCTAssertEqual(RivuletLink(.play, ratingKey: "1").url?.absoluteString, "rivulet-lab://play?ratingKey=1")
+                       "\(RivuletLink.scheme)://detail?ratingKey=12345")
+        XCTAssertEqual(RivuletLink(.play, ratingKey: "1").url?.absoluteString, "\(RivuletLink.scheme)://play?ratingKey=1")
     }
 
     func testLabSchemeMatchesRegistrationAndRejectsOfficialLinks() throws {
@@ -44,26 +69,45 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
         XCTAssertNil(RivuletLink(url: URL(string: "rivulet://detail?ratingKey=1")!))
     }
 
+    func testInvalidPlexOffsetsKeepTheLinkAndDropTheOffset() {
+        for value in ["", "-1", "1.5", "nan", "inf", "9223372036854775808", "not-a-number"] {
+            let link = RivuletLink(url: URL(string: "\(RivuletLink.scheme)://play?ratingKey=1&offset=\(value)")!)
+            XCTAssertEqual(link?.ratingKey, "1", value)
+            XCTAssertNil(link?.startOffset, value)
+        }
+        XCTAssertNil(RivuletLink(.play, ratingKey: "1", startOffset: .infinity).startOffset)
+        XCTAssertEqual(RivuletLink(.play, ratingKey: "1", startOffset: 1e300).url?.absoluteString,
+                       "\(RivuletLink.scheme)://play?ratingKey=1")
+    }
+
+    func testOffsetOnlyAppliesToPlayLinks() {
+        let detailURL = URL(string: "\(RivuletLink.scheme)://detail?ratingKey=1&offset=83250")!
+        XCTAssertNil(RivuletLink(url: detailURL)?.startOffset)
+        XCTAssertNil(RivuletLink(.detail, ratingKey: "1", startOffset: 83.25).startOffset)
+        XCTAssertEqual(RivuletLink(url: URL(string: "\(RivuletLink.scheme)://detail?ratingKey=1&offset=not-a-number")!)?.action,
+                       .detail)
+    }
+
     func testPathFormMatchesQueryForm() throws {
         for action in ["play", "detail"] {
-            let path = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "rivulet-lab://\(action)/1777"))))
-            let query = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "rivulet-lab://\(action)?ratingKey=1777"))))
+            let path = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "\(RivuletLink.scheme)://\(action)/1777"))))
+            let query = try XCTUnwrap(RivuletLink(url: XCTUnwrap(URL(string: "\(RivuletLink.scheme)://\(action)?ratingKey=1777"))))
             XCTAssertEqual(path, query)
             XCTAssertEqual(path.ratingKey, "1777")
         }
-        let trailing = RivuletLink(url: URL(string: "rivulet-lab://play/1777/")!)
+        let trailing = RivuletLink(url: URL(string: "\(RivuletLink.scheme)://play/1777/")!)
         XCTAssertEqual(trailing?.ratingKey, "1777")
-        let withServer = RivuletLink(url: URL(string: "rivulet-lab://detail/5?server=abc")!)
+        let withServer = RivuletLink(url: URL(string: "\(RivuletLink.scheme)://detail/5?server=abc")!)
         XCTAssertEqual(withServer, RivuletLink(.detail, ratingKey: "5", server: "abc"))
     }
 
     func testQueryWinsOverPath() {
-        XCTAssertEqual(RivuletLink(url: URL(string: "rivulet-lab://play/1?ratingKey=2")!)?.ratingKey, "2")
+        XCTAssertEqual(RivuletLink(url: URL(string: "\(RivuletLink.scheme)://play/1?ratingKey=2")!)?.ratingKey, "2")
     }
 
     func testBadLinksAreRejected() {
-        for s in ["rivulet-lab://play", "rivulet-lab://play/", "rivulet-lab://play?ratingKey=", "rivulet-lab://play/1/2",
-                  "rivulet-lab://bogus/1", "other://play/1", "rivulet-lab:///1777"] {
+        for s in ["\(RivuletLink.scheme)://play", "\(RivuletLink.scheme)://play/", "\(RivuletLink.scheme)://play?ratingKey=", "\(RivuletLink.scheme)://play/1/2",
+                  "\(RivuletLink.scheme)://bogus/1", "other://play/1", "\(RivuletLink.scheme):///1777"] {
             XCTAssertNil(RivuletLink(url: URL(string: s)!), s)
         }
     }
@@ -74,8 +118,8 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
     }
 
     func testParserRejectsWhatItCannotResolve() {
-        for bad in ["http://play?ratingKey=1", "rivulet-lab://open?ratingKey=1",
-                    "rivulet-lab://play", "rivulet-lab://play?ratingKey=", "rivulet-lab://detail?server=x"] {
+        for bad in ["http://play?ratingKey=1", "\(RivuletLink.scheme)://open?ratingKey=1",
+                    "\(RivuletLink.scheme)://play", "\(RivuletLink.scheme)://play?ratingKey=", "\(RivuletLink.scheme)://detail?server=x"] {
             XCTAssertNil(RivuletLink(url: URL(string: bad)!), bad)
         }
     }
@@ -156,7 +200,8 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
 
         token = "t"
         await handler.deliverHeldLink()?.value
-        XCTAssertEqual(handler.pendingPlayback?.ratingKey, "9")
+        XCTAssertEqual(handler.pendingPlayback?.metadata.ratingKey, "9")
+        XCTAssertNil(handler.pendingPlayback?.startOffset, "omitted offset keeps the metadata resume point")
     }
 
     func testNewerLinkReplacesHeldOne() async {
@@ -241,7 +286,7 @@ final class DeepLinkHandlerDetailTests: XCTestCase {
         handler.isShellReady = true
         await handler.handle(RivuletLink(.play, ratingKey: "4"))?.value
         XCTAssertEqual(reconnects, 1)
-        XCTAssertEqual(handler.pendingPlayback?.ratingKey, "4")
+        XCTAssertEqual(handler.pendingPlayback?.metadata.ratingKey, "4")
     }
 
     func testFetchThatKeepsFailingDropsTheLink() async {

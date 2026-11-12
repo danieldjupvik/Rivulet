@@ -55,6 +55,8 @@ struct IOSPlayerChromeActions {
     var selectQuality: (StreamingQuality) -> Void = { _ in }
     var selectAudio: (Int) -> Void = { _ in }
     var selectSubtitle: (Int?) -> Void = { _ in }
+    /// Opens the subtitle search; nil hides the menu entry.
+    var searchSubtitles: (() -> Void)?
     /// Steps the audio delay by `AudioSync.stepMs` units; nil hides it.
     var stepAudioDelay: ((Int) -> Void)?
     var pictureInPicture: () -> Void = {}
@@ -101,8 +103,11 @@ struct IOSPlayerChrome<Video: View, Trailing: View>: View {
     @AppStorage(SkipLengthKeys.back) private var skipBackwardSeconds = 10
     @AppStorage(SkipLengthKeys.forward) private var skipForwardSeconds = 30
     @AppStorage(AudioSync.key) private var audioDelayMs = 0
+    @AppStorage(CaptionHeight.key) private var captionHeightUnits = 0
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @State private var chromeVisible = true
+    /// The capsule its close button hid; it still shows with the controls (#556).
+    @State private var hiddenAction: String?
     @State private var hideTask: Task<Void, Never>?
     @State private var scrubValue: Double?
     @State private var ripple: Ripple?
@@ -186,7 +191,7 @@ struct IOSPlayerChrome<Video: View, Trailing: View>: View {
                 ProgressView().controlSize(.large)
             }
 
-            if let contextualAction, failure == nil {
+            if let contextualAction, failure == nil, chromeVisible || hiddenAction != contextualAction.title {
                 contextualCapsule(contextualAction)
             }
 
@@ -214,6 +219,9 @@ struct IOSPlayerChrome<Video: View, Trailing: View>: View {
         }
         .onChange(of: failure) { _, failure in
             if failure != nil { chromeVisible = true }
+        }
+        .onChange(of: contextualAction?.title) { _, title in
+            if title == nil { hiddenAction = nil }
         }
     }
 
@@ -529,6 +537,12 @@ struct IOSPlayerChrome<Video: View, Trailing: View>: View {
                 }
             }
             .pickerStyle(.inline)
+            if let search = actions.searchSubtitles {
+                Button { interact { search() } } label: {
+                    Label("Search for Subtitles", systemImage: "magnifyingglass")
+                }
+            }
+            subtitleHeightControls
         } label: {
             Image(systemName: selectedSubtitleID == nil ? "captions.bubble" : "captions.bubble.fill")
                 .font(.body.weight(.semibold))
@@ -549,6 +563,24 @@ struct IOSPlayerChrome<Video: View, Trailing: View>: View {
                 .disabled(audioDelayMs == 0)
                 .accessibilityLabel("Reset audio delay")
                 Button { interact { step(1) } } label: { Label("Later", systemImage: "plus") }
+            }
+            .menuActionDismissBehavior(.disabled)
+        }
+    }
+
+    /// − / value / + for the global caption Height (#461), kept open while tapping.
+    private var subtitleHeightControls: some View {
+        Section("Subtitle Height") {
+            ControlGroup {
+                Button { interact { CaptionHeight.step(by: -1) } } label: { Label("Lower", systemImage: "minus") }
+                    .disabled(captionHeightUnits <= CaptionHeight.unitRange.lowerBound)
+                Button { interact { CaptionHeight.units = 0 } } label: {
+                    Text(CaptionHeight.formatted(captionHeightUnits))
+                }
+                .disabled(captionHeightUnits == 0)
+                .accessibilityLabel("Reset subtitle height")
+                Button { interact { CaptionHeight.step(by: 1) } } label: { Label("Higher", systemImage: "plus") }
+                    .disabled(captionHeightUnits >= CaptionHeight.unitRange.upperBound)
             }
             .menuActionDismissBehavior(.disabled)
         }
@@ -576,6 +608,8 @@ struct IOSPlayerChrome<Video: View, Trailing: View>: View {
                     HStack(spacing: 8) {
                         if let cancel = item.cancel {
                             glassButton("Cancel", systemImage: "xmark", action: cancel)
+                        } else if !chromeVisible {
+                            glassButton("Hide", systemImage: "xmark") { hiddenAction = item.title }
                         }
                         Button {
                             interact(item.action)
@@ -1032,9 +1066,15 @@ private struct IOSPlayerInputSurface: UIViewRepresentable {
                     self?.recheckPending = false
                     self?.syncKeyboardOwnership()
                 }
-            } else if !isFirstResponder {
+            } else if !isFirstResponder, !Self.keyboardHeldElsewhere {
                 becomeFirstResponder()
             }
+        }
+
+        /// An open menu holds first responder; taking it back drops the menu's pick.
+        private static var keyboardHeldElsewhere: Bool {
+            let holder = UIResponder.currentFirstResponder
+            return holder is UIView && !(holder is UIWindow)
         }
 
         private var isCovered: Bool {
@@ -1123,4 +1163,17 @@ private struct IOSRoutePicker: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+
+private extension UIResponder {
+    private static weak var found: UIResponder?
+
+    /// The app's first responder: an action sent to nil goes to it (the key window when there is none).
+    static var currentFirstResponder: UIResponder? {
+        found = nil
+        UIApplication.shared.sendAction(#selector(recordFirstResponder), to: nil, from: nil, for: nil)
+        return found
+    }
+
+    @objc private func recordFirstResponder() { UIResponder.found = self }
 }

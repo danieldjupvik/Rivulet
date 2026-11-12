@@ -5,14 +5,15 @@ import SwiftUI
 
 /// Tab bar on iPhone, sidebar on iPad (with each video library listed under Library).
 struct IOSRootView: View {
-    @EnvironmentObject private var plex: IOSPlexSession
-    @EnvironmentObject private var browse: IOSBrowseStore
+    @EnvironmentObject private var plex: PlexSession
+    @EnvironmentObject private var browse: BrowseStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @SceneStorage("iosSelectedTab") private var selectedTab = "home"
     @StateObject private var playback = IOSPlaybackController()
     @State private var showingAccount = false
     @State private var showingWhatsNew = false
+    @State private var whatsNewVersions: [String] = []
     @ObservedObject private var profiles = PlexUserProfileManager.shared
     @State private var choosingProfile = false
     @AppStorage("lastSeenBuild") private var lastSeenBuild = ""
@@ -51,10 +52,11 @@ struct IOSRootView: View {
                     }
                     .defaultVisibility(.hidden, for: .tabBar)
                 }
-                ForEach(showsSidebarLibraries ? videoLibraries : []) { library in
-                    Tab(browse.labels.title(library.title, providerID: library.providerID), systemImage: library.icon,
+                // Not by `id`: that is the server's own section number, so two servers collide and UIKit's sidebar throws.
+                ForEach(showsSidebarLibraries ? videoLibraries : [], id: \.self) { library in
+                    Tab(browse.labels.title(library.title, providerID: library.providerID), systemImage: library.iosIcon,
                         value: libraryTab(library)) {
-                        sidebarStack(libraryTab(library)) { IOSPlexLibraryView(library: library, showsAccount: true) }
+                        sidebarStack(libraryTab(library)) { IOSLibraryPage(library: library, showsAccount: true) }
                     }
                     .defaultVisibility(.hidden, for: .tabBar)
                 }
@@ -78,8 +80,8 @@ struct IOSRootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .environment(\.openAccount) { showingAccount = true }
         .environment(\.openDownloads, openDownloads)
-        .sheet(isPresented: $showingAccount) { IOSAccountView() }
-        .sheet(isPresented: $showingWhatsNew) { IOSWhatsNewSheet(version: IOSChangelog.currentVersion) }
+        .sheet(isPresented: $showingAccount) { IOSAccountView().iosSessionObjects(plex) }
+        .sheet(isPresented: $showingWhatsNew) { IOSWhatsNewSheet(versions: whatsNewVersions) }
         .sheet(isPresented: $choosingProfile) { IOSProfilePickerSheet() }
         // Content is withheld until a profile is entered: ask who is watching,
         // and nothing of the locked profile's keeps playing.
@@ -133,15 +135,25 @@ struct IOSRootView: View {
         }
         .onChange(of: browse.libraries) { _, libraries in
             if !libraries.isEmpty, !browse.isLoadingOtherServers { dropOrphanedLibraryTab() }
-            if case .library(let library) = librarySelection, !libraries.contains(library) {
-                librarySelection = nil
-                libraryPath = NavigationPath()
-            }
+            dropMissingLibrarySelection()
+        }
+        .onChange(of: browse.photoLibraries) { dropMissingLibrarySelection() }
+        .onChange(of: browse.hiddenSidebarLibraries) {
+            dropOrphanedLibraryTab()
+            dropMissingLibrarySelection()
         }
         .onChange(of: browse.isLoadingOtherServers) { _, loading in
             if !loading, !browse.libraries.isEmpty { dropOrphanedLibraryTab() }
         }
         .onChange(of: playlistServers) { if !browse.isLoadingOtherServers { dropOrphanedLibraryTab() } }
+    }
+
+    /// A library gone from the server or hidden in Settings leaves the selection.
+    private func dropMissingLibrarySelection() {
+        if case .library(let library) = librarySelection, !browse.shownLibraries.contains(library) {
+            librarySelection = nil
+            libraryPath = NavigationPath()
+        }
     }
 
     /// A sidebar library tab vanishes on a server without that library.
@@ -214,9 +226,9 @@ struct IOSRootView: View {
         return browse.providerOrder.filter { browse.playlists[$0] != nil }
     }
 
-    /// Movie and TV libraries only: iOS has no music player. Each server's together, the selected first.
+    /// Movie, TV and photo libraries: iOS has no music player. Each server's together, the selected first.
     private var videoLibraries: [MediaLibrary] {
-        browse.libraries.sidebarOrder(servers: browse.providerOrder)
+        browse.shownLibraries.sidebarOrder(servers: browse.providerOrder)
     }
 
     private func libraryTab(_ library: MediaLibrary) -> String { "library:\(library.providerID)|\(library.id)" }
@@ -227,8 +239,9 @@ struct IOSRootView: View {
     private func showWhatsNewIfUpdated() {
         let current = IOSChangelog.currentVersion
         guard plex.isConfigured, current != lastSeenBuild else { return }
+        whatsNewVersions = WhatsNewRange.versions(IOSChangelog.entries.map(\.version), current: current, lastSeen: lastSeenBuild)
         lastSeenBuild = current
-        showingWhatsNew = IOSChangelog.lines(for: current) != nil
+        showingWhatsNew = !whatsNewVersions.isEmpty
     }
 
     #if DEBUG
@@ -243,7 +256,7 @@ struct IOSRootView: View {
             libraryColumn = .detail
             return
         }
-        guard let item = try? await SearchResults.search(title, providers: browse.searchProviders).first(where: { $0.title == title }) else { return }
+        guard let item = try? await SearchResults.search(title, providers: browse.searchProviders).titles.first(where: { $0.title == title }) else { return }
         selectedTab = "library"
         libraryColumn = .detail
         // iPad's split view picks a library on appear and clears the path when it does, so pick first.
@@ -290,7 +303,7 @@ struct IOSRootView: View {
 }
 
 #Preview {
-    let session = IOSPlexSession()
+    let session = PlexSession()
     IOSRootView()
         .environmentObject(session)
         .environmentObject(session.browse)
