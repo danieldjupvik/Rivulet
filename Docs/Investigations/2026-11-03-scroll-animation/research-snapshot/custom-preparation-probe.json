@@ -1,0 +1,197 @@
+{
+  "ordinary-layout": {
+    "cells": 11,
+    "during_explicit_preparation": 3,
+    "during_motion": 8,
+    "cell_events": [
+      {
+        "phase": "ordinary-layout",
+        "preparing": true,
+        "offset": 0,
+        "item": 0,
+        "event": "cell",
+        "elapsed": 0.19257329166430281
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": true,
+        "offset": 0,
+        "item": 1,
+        "event": "cell",
+        "elapsed": 0.1943636666619568
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": true,
+        "offset": 0,
+        "item": 2,
+        "event": "cell",
+        "elapsed": 0.1944856666668784
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 422,
+        "item": 3,
+        "event": "cell",
+        "elapsed": 0.2630867916668649
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 922,
+        "item": 4,
+        "event": "cell",
+        "elapsed": 1.263375916671066
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 1422,
+        "item": 5,
+        "event": "cell",
+        "elapsed": 2.2656628333352273
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 1922,
+        "item": 6,
+        "event": "cell",
+        "elapsed": 3.2629146250037593
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 2422,
+        "item": 7,
+        "event": "cell",
+        "elapsed": 4.262944125002832
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 2922,
+        "item": 8,
+        "event": "cell",
+        "elapsed": 5.262754291667079
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 3422,
+        "item": 9,
+        "event": "cell",
+        "elapsed": 6.26288833333092
+      },
+      {
+        "phase": "ordinary-layout",
+        "preparing": false,
+        "offset": 3922,
+        "item": 10,
+        "event": "cell",
+        "elapsed": 7.262950166666997
+      }
+    ]
+  },
+  "bounded-layout-band": {
+    "cells": 11,
+    "during_explicit_preparation": 3,
+    "during_motion": 8,
+    "cell_events": [
+      {
+        "phase": "bounded-layout-band",
+        "preparing": true,
+        "offset": 0,
+        "item": 0,
+        "event": "cell",
+        "elapsed": 0.0016659166649333201
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": true,
+        "offset": 0,
+        "item": 1,
+        "event": "cell",
+        "elapsed": 0.0018485416658222675
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": true,
+        "offset": 0,
+        "item": 2,
+        "event": "cell",
+        "elapsed": 0.001983458329050336
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 440,
+        "item": 3,
+        "event": "cell",
+        "elapsed": 0.27505912500055274
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 940,
+        "item": 4,
+        "event": "cell",
+        "elapsed": 1.275576791667845
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 1440,
+        "item": 5,
+        "event": "cell",
+        "elapsed": 2.2749368750010035
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 1940,
+        "item": 6,
+        "event": "cell",
+        "elapsed": 3.2751086666685296
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 2440,
+        "item": 7,
+        "event": "cell",
+        "elapsed": 4.274932624997746
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 2940,
+        "item": 8,
+        "event": "cell",
+        "elapsed": 5.275237791662221
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 3440,
+        "item": 9,
+        "event": "cell",
+        "elapsed": 6.2747476250006
+      },
+      {
+        "phase": "bounded-layout-band",
+        "preparing": false,
+        "offset": 3940,
+        "item": 10,
+        "event": "cell",
+        "elapsed": 7.274875208335288
+      }
+    ]
+  },
+  "conclusion": "Returning compositional layout attributes from an expanded fixed preparation rectangle did not realize extra offscreen cells or remove cell creation during direct-offset animation in this probe. This rejects this specific small layout-only repair, not all custom scrolling designs.",
+  "limits": [
+    "Simulator tvOS 27.2, cheap row-sized cells, two sequential phases, forward motion only. Not a Rivulet performance measurement.",
+    "No app source was changed. Existing native Home experiment remains enabled."
+  ]
+}

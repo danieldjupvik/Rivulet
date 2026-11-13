@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Copyright (C) 2025-2026 Bain Gurley
 
-//  A collection that drives its own vertical focus scroll; the engine's drifts. With
-//  `isScrollEnabled = false`, the top section pins at `topBand` and every other row
-//  centres, clamped to the content, as on Home and Apple's detail page.
+// A collection that retains focus bookkeeping and resting positions while UIKit drives scrolling.
 
 import UIKit
 
 final class FocusScrollControlledCollectionView: UICollectionView {
     /// Screen-y the TOP section's row top is pinned to (under the logo + pills).
     var topBand: CGFloat = 230
-    /// Duration of the controlled vertical scroll. Defaults to the shared
-    /// `FocusScrollMotion.settleDuration` so the home and detail surfaces stay
-    /// in sync; still overridable per instance.
-    var scrollDuration: TimeInterval = FocusScrollMotion.settleDuration
     /// Fires on every focus change — the newly-focused index path, or nil when
     /// focus leaves the collection. Used to track which episode/season is current.
     var onFocusedIndexPath: ((IndexPath?) -> Void)?
@@ -55,9 +49,6 @@ final class FocusScrollControlledCollectionView: UICollectionView {
             focusedEpisodeIndexPath = nil
             return
         }
-        let frame = cell.convert(cell.bounds, to: self)   // content coordinates
-        let minY = -adjustedContentInset.top
-        let maxY = max(minY, contentSize.height - bounds.height + adjustedContentInset.bottom)
         // A shelf row's focused tile belongs to its nested collection, so resolve the cell this one owns.
         let cellIndexPath = indexPath(for: cell) ?? ownedCell(containing: nextView)?.indexPath
         let isTop = topSectionIndex != nil && cellIndexPath?.section == topSectionIndex
@@ -65,45 +56,23 @@ final class FocusScrollControlledCollectionView: UICollectionView {
         focusedEpisodeIndexPath = isTop ? cellIndexPath : nil
         // The one place the path is resolved for every row shape.
         if let cellIndexPath { lastFocusedIndexPath = cellIndexPath }
-        let targetY = isTop ? (frame.minY - topBand) : (frame.midY - bounds.height / 2)
-        let clamped = max(minY, min(targetY, maxY))
-        animateOffset(to: clamped)
     }
 
-    // MARK: - Per-frame scroll driver
-
-    // UIView.animate jumps the model offset at once, so a row ending off-screen loses its
-    // cells before it slides out. Advancing the real offset per frame recycles gradually.
-    private var scrollLink: CADisplayLink?
-    private var scrollStartY: CGFloat = 0
-    private var scrollTargetY: CGFloat = 0
-    private var scrollStartTime: CFTimeInterval = 0
-
-    private func animateOffset(to targetY: CGFloat) {
-        scrollLink?.invalidate()
-        if abs(targetY - contentOffset.y) < 0.5 {
-            contentOffset = CGPoint(x: 0, y: targetY)
-            scrollLink = nil
-            return
-        }
-        scrollStartY = contentOffset.y          // continue from the current position
-        scrollTargetY = targetY
-        scrollStartTime = CACurrentMediaTime()
-        let link = CADisplayLink(target: self, selector: #selector(stepScroll))
-        link.add(to: .main, forMode: .common)
-        scrollLink = link
+    func focusScrollTarget(proposed: CGPoint) -> CGPoint {
+        guard let focused = UIFocusSystem.focusSystem(for: self)?.focusedItem as? UIView,
+              focused.isDescendant(of: self),
+              let cell = enclosingCell(of: focused) else { return proposed }
+        let frame = cell.convert(cell.bounds, to: self)
+        let path = indexPath(for: cell) ?? ownedCell(containing: focused)?.indexPath
+        let isTop = topSectionIndex != nil && path?.section == topSectionIndex
+        let minY = -adjustedContentInset.top
+        let maxY = max(minY, contentSize.height - bounds.height + adjustedContentInset.bottom)
+        let targetY = isTop ? frame.minY - topBand : frame.midY - bounds.height / 2
+        return CGPoint(x: proposed.x, y: max(minY, min(targetY, maxY)))
     }
 
-    @objc private func stepScroll(_ link: CADisplayLink) {
-        let elapsed = CACurrentMediaTime() - scrollStartTime
-        let t = scrollDuration > 0 ? min(1, elapsed / scrollDuration) : 1
-        let e = FocusScrollMotion.ease(t)   // shared focus-scroll curve (cubic ease-out)
-        contentOffset = CGPoint(x: 0, y: scrollStartY + (scrollTargetY - scrollStartY) * CGFloat(e))
-        if t >= 1 {
-            link.invalidate()
-            scrollLink = nil
-            contentOffset = CGPoint(x: 0, y: scrollTargetY)
-        }
+    func cancelFocusScroll() {
+        setContentOffset(contentOffset, animated: false)
     }
 
     /// Walk up from a focused view to its enclosing collection-view cell (or nil

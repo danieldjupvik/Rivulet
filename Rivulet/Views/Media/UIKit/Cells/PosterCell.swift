@@ -321,13 +321,14 @@ final class PosterCell: UICollectionViewCell {
 
     /// Music tiles are 1:1 square; everything else keeps the 2:3 poster ratio.
     private func setSquare(_ square: Bool) {
+        let previousArtSize = tile.art
         tile = square ? MediaRowMetrics.music : MediaRowMetrics.poster
         let host = tile.hostSize
         if posterHeightConstraint.constant != host.height {
             posterWidthConstraint.constant = host.width
             posterHeightConstraint.constant = host.height
         }
-        if !hasArtwork { posterView.image = tileBlankArtwork }
+        if previousArtSize != tile.art || !hasArtwork { clearArtwork() }
     }
 
     override func prepareForReuse() {
@@ -342,6 +343,7 @@ final class PosterCell: UICollectionViewCell {
     /// occupant here rather than assume `prepareForReuse` ran.
     func configurePlaceholder() {
         resetContent()
+        clearArtwork()
         placeholderPanel.isHidden = false
     }
 
@@ -352,7 +354,6 @@ final class PosterCell: UICollectionViewCell {
         loadingSpinner.stopAnimating()
         placeholderPanel.isHidden = true
         currentURL = nil
-        clearArtwork()
         progressInfoBar.isHidden = true; bottomInfoBlur?.isHidden = true
         progressInfoBar.reset()
         watchedBadge.isHidden = true
@@ -405,6 +406,7 @@ final class PosterCell: UICollectionViewCell {
         // Glass panel up immediately (covers the bare gray); the load now
         // retries transient failures internally, so the spinner simply rides
         // the single await until the artwork resolves or genuinely fails.
+        clearArtwork()
         showPlaceholderLoading()
         let key = url.absoluteString as AnyHashable
         imageLoadTask = Task { [weak self] in

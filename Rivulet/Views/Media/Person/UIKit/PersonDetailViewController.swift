@@ -216,8 +216,8 @@ final class PersonDetailViewController: UIViewController {
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.clipsToBounds = false
-        // The engine's scroll animator would race the subclass's display-link scroll.
-        collectionView.isScrollEnabled = false
+        collectionView.isScrollEnabled = true
+        collectionView.delegate = self
         collectionView.register(PersonHeaderCell.self, forCellWithReuseIdentifier: PersonHeaderCell.reuseID)
         collectionView.register(ShelfRowCell.self, forCellWithReuseIdentifier: ShelfRowCell.reuseID)
         view.addSubview(collectionView)
@@ -459,5 +459,13 @@ final class PersonDetailViewController: UIViewController {
         let content = InfoPopupContent.description(title: detail.name, subtitle: nil, body: bio)
         let popup = InfoPopupViewController(content: content, width: InfoPopupViewController.descriptionSize.width, height: InfoPopupViewController.descriptionSize.height, scrollable: true)
         present(popup, animated: true)
+    }
+}
+
+
+extension PersonDetailViewController: UICollectionViewDelegate {
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        targetContentOffset.pointee = collectionView.focusScrollTarget(proposed: targetContentOffset.pointee)
     }
 }

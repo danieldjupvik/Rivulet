@@ -1,0 +1,199 @@
+{
+  "native": {
+    "counts": {
+      "main_samples": 4067,
+      "idle_samples": 343,
+      "ShelfRowCell.configure:idle": 199,
+      "PosterCell.init:idle": 35,
+      "PosterCell.init:other": 38,
+      "PosterCell.prepareForReuse:idle": 35
+    },
+    "moves": [
+      {
+        "move": 1,
+        "onset": 92.003171625,
+        "onset_ms": 55.264832999999996,
+        "following_max_ms": 12.23025
+      },
+      {
+        "move": 2,
+        "onset": 93.704829541,
+        "onset_ms": 35.240291,
+        "following_max_ms": 22.041416
+      },
+      {
+        "move": 3,
+        "onset": 96.123875666,
+        "onset_ms": 27.455958,
+        "following_max_ms": 23.661291000000002
+      },
+      {
+        "move": 4,
+        "onset": 97.77543725,
+        "onset_ms": 26.686833,
+        "following_max_ms": 24.110916
+      },
+      {
+        "move": 5,
+        "onset": 100.110993375,
+        "onset_ms": 25.993833000000002,
+        "following_max_ms": 24.331125
+      },
+      {
+        "move": 6,
+        "onset": 101.66248175,
+        "onset_ms": 20.892999999999997,
+        "following_max_ms": 5.020041
+      },
+      {
+        "move": 7,
+        "onset": 102.663518416,
+        "onset_ms": 11.777916,
+        "following_max_ms": 10.769499999999999
+      },
+      {
+        "move": 8,
+        "onset": 103.380890791,
+        "onset_ms": 12.491624999999999,
+        "following_max_ms": 11.969624999999999
+      },
+      {
+        "move": 9,
+        "onset": 104.53200825,
+        "onset_ms": 21.308583,
+        "following_max_ms": 5.653875
+      },
+      {
+        "move": 10,
+        "onset": 105.433005041,
+        "onset_ms": 14.221124999999999,
+        "following_max_ms": 14.279375
+      },
+      {
+        "move": 11,
+        "onset": 106.166950708,
+        "onset_ms": 12.099666000000001,
+        "following_max_ms": 12.709625
+      },
+      {
+        "move": 12,
+        "onset": 107.167860041,
+        "onset_ms": 10.805208,
+        "following_max_ms": 14.000583
+      },
+      {
+        "move": 13,
+        "onset": 107.935283333,
+        "onset_ms": 11.79675,
+        "following_max_ms": 14.438375
+      },
+      {
+        "move": 14,
+        "onset": 108.585892083,
+        "onset_ms": 11.878,
+        "following_max_ms": 6.337041
+      },
+      {
+        "move": 15,
+        "onset": 108.986294416,
+        "onset_ms": 12.391333,
+        "following_max_ms": 12.318291
+      },
+      {
+        "move": 16,
+        "onset": 110.104033958,
+        "onset_ms": 12.705582999999999,
+        "following_max_ms": 12.047833
+      },
+      {
+        "move": 17,
+        "onset": 110.687947416,
+        "onset_ms": 12.124291000000001,
+        "following_max_ms": 12.412208
+      }
+    ],
+    "median_following_max_ms": 12.412208
+  },
+  "previous_warmed_custom": {
+    "counts": {
+      "main_samples": 2384,
+      "idle_samples": 0,
+      "stepOffset:other": 157,
+      "ShelfRowCell.configure:other": 142,
+      "PosterCell.prepareForReuse:other": 45
+    },
+    "moves": [
+      {
+        "move": 1,
+        "onset": 24.013331541,
+        "onset_ms": 24.168125,
+        "following_max_ms": 27.686374999999998
+      },
+      {
+        "move": 2,
+        "onset": 27.398317541,
+        "onset_ms": 25.245707999999997,
+        "following_max_ms": 30.037833
+      },
+      {
+        "move": 3,
+        "onset": 30.901699375,
+        "onset_ms": 23.434875,
+        "following_max_ms": 29.197666
+      },
+      {
+        "move": 4,
+        "onset": 33.337560916,
+        "onset_ms": 27.485291,
+        "following_max_ms": 28.827416000000003
+      },
+      {
+        "move": 5,
+        "onset": 36.473799791,
+        "onset_ms": 27.634415999999998,
+        "following_max_ms": 29.124041
+      },
+      {
+        "move": 6,
+        "onset": 39.293242375,
+        "onset_ms": 25.568375,
+        "following_max_ms": 28.309833
+      },
+      {
+        "move": 7,
+        "onset": 41.997925416,
+        "onset_ms": 27.256666,
+        "following_max_ms": 28.841833
+      },
+      {
+        "move": 8,
+        "onset": 45.048790125,
+        "onset_ms": 29.370290999999998,
+        "following_max_ms": 29.339375
+      },
+      {
+        "move": 9,
+        "onset": 47.968323375,
+        "onset_ms": 26.496790999999998,
+        "following_max_ms": 35.860958
+      },
+      {
+        "move": 10,
+        "onset": 50.854364208,
+        "onset_ms": 23.778958,
+        "following_max_ms": 32.102041
+      }
+    ],
+    "median_following_max_ms": 29.1608535
+  },
+  "user_observation": "User confirms requested sequence and reports 100% hitch free and smooth.",
+  "method": "Deduplicated client updates. Focus onsets inferred from >=8ms updates with >=4 focus samples and >50% focus samples, grouped within 400ms. Following window 50-500ms, truncated at next inferred onset. Samples are statistical, not exact durations.",
+  "limitations": [
+    "No input signposts or row identities; inferred onsets need not equal remote presses.",
+    "Native capture is a fresh process; previous comparator is warmed. Not a controlled matched A/B.",
+    "Detected native onsets occur late in the capture (92-111s), at faster than requested spacing; the final following window is truncated by capture end.",
+    "Native os-signpost export has no rows; no CellPrepare interval comparison is available.",
+    "Fresh process does not imply cold disk artwork cache.",
+    "User smoothness observation is not a measurement of zero dropped frames."
+  ]
+}

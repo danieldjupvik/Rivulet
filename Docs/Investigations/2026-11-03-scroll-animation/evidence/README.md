@@ -35,7 +35,8 @@ xcrun swiftc Rivulet/Views/Media/FocusScrollMotion.swift \
 ```
 
 The rounded-feedback cases remain two points short after 600 iterations. The
-precise-feedback cases settle in 65–73 iterations at approximately 59.94 Hz.
+precise-feedback cases settle in 69–77 iterations at approximately 59.94 Hz
+with the November 12 model update (the historical model took 65–73).
 This is a numerical reproduction, not a UIKit integration test.
 
 ## Instruments summary

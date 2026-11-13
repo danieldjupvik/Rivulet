@@ -185,6 +185,11 @@ final class SeasonDetailViewController: UIViewController, UICollectionViewDelega
 
     @objc private func dismissSelf() { dismiss(animated: true) }
 
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        targetContentOffset.pointee = collectionView.focusScrollTarget(proposed: targetContentOffset.pointee)
+    }
+
     // MARK: - Build
 
     private func buildHeader() {
@@ -260,7 +265,7 @@ final class SeasonDetailViewController: UIViewController, UICollectionViewDelega
         collectionView = FocusScrollControlledCollectionView(frame: .zero, collectionViewLayout: layout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         // The header pins at the top; every episode row centres (see the class).
-        collectionView.isScrollEnabled = false
+        collectionView.isScrollEnabled = true
         collectionView.topSectionIndex = 0
         collectionView.topBand = Self.headerTop
         collectionView.backgroundColor = .clear

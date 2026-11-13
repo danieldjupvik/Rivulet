@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Copyright (C) 2025-2026 Bain Gurley
 
-// Duration and easing of the driven vertical re-center scroll on Home rows and the below-fold
-// detail. We drive it because the focus engine's own scroll animator races a CADisplayLink driver.
-// Keep other timings (carousel morph, backdrop crossfade, detail slide) out of here.
-
 import CoreGraphics
 import Foundation
 
@@ -22,40 +18,46 @@ enum FocusScrollMotion {
 
     /// Fraction of the remaining distance left after each millisecond (time constant ~151 ms).
     static let convergencePerMillisecond = 0.9934
-    /// Largest speed-up allowed per second: 10 pt per 60 Hz frame, per frame.
-    static let maxAcceleration: CGFloat = 10 * 60 * 60
     /// Edge margin the focused item keeps when a long list scrolls.
     static let edgeInset: CGFloat = 180
 
-    /// One frame of a retargetable follow: exponential easing toward `target`,
-    /// with speed-ups capped so a start or a retarget never jumps. A target
-    /// more than two viewports away is first brought to two viewports.
-    /// `velocity` is in points per second; feed the returned one back in.
-    static func follow(from y: CGFloat, to target: CGFloat, velocity: CGFloat,
-                       dt: CFTimeInterval, viewport: CGFloat) -> (y: CGFloat, velocity: CGFloat, done: Bool) {
-        var remaining = min(max(dt, 1.0 / 240), 0.05)
-        var y = y
-        var velocity = velocity
-        if viewport > 0, abs(target - y) > 2 * viewport {
-            y = target - (target > y ? 2 : -2) * viewport
+    struct Follower {
+        private(set) var position: CGFloat
+        private var startPosition: CGFloat
+        // The acceleration limit applies to displacement per callback, not points per second.
+        private var displacement: CGFloat = 0
+
+        init(position: CGFloat) {
+            self.position = position
+            startPosition = position
         }
-        // Integrate delayed frames in 60 Hz steps so a hitch doesn't amplify acceleration.
-        while remaining > 1e-9 {
-            let dt = min(remaining, 1.0 / 60)
-            let k = CGFloat(pow(convergencePerMillisecond, dt * 1000))
-            var delta = (target - y) * (1 - k)
-            let speed = abs(delta) / CGFloat(dt)
-            let prior = velocity * delta > 0 ? abs(velocity) : 0
-            if speed > prior {
-                let capped = min(speed, prior + maxAcceleration * CGFloat(dt))
-                delta = (delta < 0 ? -capped : capped) * CGFloat(dt)
+
+        mutating func translate(by delta: CGFloat) {
+            position += delta
+            startPosition += delta
+        }
+
+        mutating func advance(toward target: CGFloat, elapsed: CFTimeInterval, viewport: CGFloat) -> Bool {
+            let milliseconds = floor(elapsed * 1000)
+            guard milliseconds >= 1 else { return false }
+            let remaining = target - position
+            if abs(remaining) < 0.5 {
+                position = target
+                displacement = 0
+                return true
             }
-            y += delta
-            if abs(target - y) < 0.5 { return (target, 0, true) }
-            velocity = delta / CGFloat(dt)
-            remaining -= dt
+            let convergence = CGFloat(pow(convergencePerMillisecond, milliseconds))
+            var acceleration = remaining * (1 - convergence) - displacement
+            if acceleration * remaining > 0 {
+                acceleration = max(-10, min(10, acceleration))
+            }
+            displacement += acceleration
+            if viewport > 0, abs(position - startPosition) >= viewport, abs(remaining) >= 2 * viewport {
+                position = target - (remaining > 0 ? 2 : -2) * viewport
+            }
+            position += displacement
+            return false
         }
-        return (y, velocity, false)
     }
 
     /// Smallest offset change that keeps `frame` at least `edgeInset` inside a

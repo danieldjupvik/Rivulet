@@ -1,0 +1,330 @@
+{
+  "memory": {
+    "warm": {
+      "first_MiB": 68.76763153076172,
+      "peak_MiB": 79.12700653076172,
+      "peak_at_seconds": 19.653018916,
+      "final_MiB": 67.86122131347656,
+      "last_sample_seconds": 99.328218958,
+      "samples": 99
+    },
+    "fresh_allocations": {
+      "first_MiB": 0.06354522705078125,
+      "peak_MiB": 494.8927230834961,
+      "peak_at_seconds": 30.858609708,
+      "final_MiB": 232.1583709716797,
+      "last_sample_seconds": 140.076376875,
+      "samples": 134
+    }
+  },
+  "allocation_UI_observations": {
+    "source": "Instruments GUI, full-run Created & Persistent Statistics and allocation call tree",
+    "heap_and_anonymous_VM_MiB": 497.92,
+    "heap_MiB": 56.22,
+    "anonymous_VM_MiB": 441.7,
+    "CG_raster_data_MiB": 398.3,
+    "CG_raster_persistent_regions": 108,
+    "IOSurface_MiB": 14.12,
+    "ImageIO_PNG_data_MiB": 12.8,
+    "heaviest_stack": "ImageCacheManager.downsampledImage -> CGImageSourceCreateThumbnailAtIndexEx -> CGBitmapContextCreateImage -> CGDataProviderCreateWithCopyOfData -> mmap",
+    "heaviest_stack_displayed_bytes": "396.01 MB at ImageCacheManager.downsampledImage (GUI label retained verbatim)",
+    "interpretation": "Allocation origin is established; the retaining owner (NSCache, image view or another owner) is not established by an allocation stack. Persistent allocated bytes are not physical footprint."
+  },
+  "jetsam": [
+    {
+      "file": "JetsamEvent-2026-11-12-171007.ips",
+      "report_date": "2026-11-12 17:10:07.28 +0100",
+      "timeDelta": 6,
+      "genCounter": 0,
+      "largestProcess": "mediaplaybackd",
+      "free_page_MiB": 65.078125,
+      "reasons": {
+        "sustained-memory-pressure": 1
+      },
+      "rivulet": [
+        {
+          "name": "Rivulet",
+          "pid": 756,
+          "rpages_MiB": 92.125,
+          "lifetimeMax_pages": 20367,
+          "reason": null,
+          "states": [
+            "suspended"
+          ]
+        },
+        {
+          "name": "Rivulet",
+          "pid": 818,
+          "rpages_MiB": 64.859375,
+          "lifetimeMax_pages": 11154,
+          "reason": null,
+          "states": [
+            "active",
+            "frontmost"
+          ]
+        }
+      ],
+      "largest_rpages": [
+        {
+          "name": "mediaplaybackd",
+          "rpages_MiB": 876.546875
+        },
+        {
+          "name": "backboardd",
+          "rpages_MiB": 827.296875
+        },
+        {
+          "name": "videocodecd",
+          "rpages_MiB": 576.53125
+        }
+      ]
+    },
+    {
+      "file": "JetsamEvent-2026-11-12-171037.ips",
+      "report_date": "2026-11-12 17:10:37.68 +0100",
+      "timeDelta": 29903,
+      "genCounter": 0,
+      "largestProcess": "mediaplaybackd",
+      "free_page_MiB": 53.78125,
+      "reasons": {
+        "sustained-memory-pressure": 60
+      },
+      "rivulet": [
+        {
+          "name": "Rivulet",
+          "pid": 756,
+          "rpages_MiB": 92.125,
+          "lifetimeMax_pages": 20367,
+          "reason": "sustained-memory-pressure",
+          "states": [
+            "suspended"
+          ]
+        },
+        {
+          "name": "Rivulet",
+          "pid": 818,
+          "rpages_MiB": 64.859375,
+          "lifetimeMax_pages": 11154,
+          "reason": null,
+          "states": [
+            "active",
+            "frontmost"
+          ]
+        }
+      ],
+      "largest_rpages": [
+        {
+          "name": "mediaplaybackd",
+          "rpages_MiB": 876.484375
+        },
+        {
+          "name": "backboardd",
+          "rpages_MiB": 827.3125
+        },
+        {
+          "name": "videocodecd",
+          "rpages_MiB": 576.53125
+        }
+      ]
+    },
+    {
+      "file": "JetsamEvent-2026-11-12-172945.ips",
+      "report_date": "2026-11-12 17:29:45.19 +0100",
+      "timeDelta": 11,
+      "genCounter": 0,
+      "largestProcess": "mediaplaybackd",
+      "free_page_MiB": 41.421875,
+      "reasons": {
+        "per-process-limit": 1
+      },
+      "rivulet": [
+        {
+          "name": "Rivulet",
+          "pid": 818,
+          "rpages_MiB": 77.59375,
+          "lifetimeMax_pages": 32310,
+          "reason": null,
+          "states": [
+            "active",
+            "frontmost"
+          ]
+        }
+      ],
+      "largest_rpages": [
+        {
+          "name": "mediaplaybackd",
+          "rpages_MiB": 2099.25
+        },
+        {
+          "name": "videocodecd",
+          "rpages_MiB": 1278.625
+        },
+        {
+          "name": "backboardd",
+          "rpages_MiB": 1161.5
+        }
+      ]
+    },
+    {
+      "file": "JetsamEvent-2026-11-12-223122.ips",
+      "report_date": "2026-11-12 22:31:22.91 +0100",
+      "timeDelta": 18096550,
+      "genCounter": 1,
+      "largestProcess": "backboardd",
+      "free_page_MiB": 47.046875,
+      "reasons": {
+        "vm-compressor-thrashing": 2,
+        "fc-thrashing": 69,
+        "highwater": 1
+      },
+      "rivulet": [
+        {
+          "name": "Rivulet",
+          "pid": 818,
+          "rpages_MiB": 75.265625,
+          "lifetimeMax_pages": 32310,
+          "reason": null,
+          "states": [
+            "active"
+          ]
+        }
+      ],
+      "largest_rpages": [
+        {
+          "name": "backboardd",
+          "rpages_MiB": 569.03125
+        },
+        {
+          "name": "TVMusic",
+          "rpages_MiB": 492.71875
+        },
+        {
+          "name": "mediaplaybackd",
+          "rpages_MiB": 379.296875
+        }
+      ]
+    },
+    {
+      "file": "JetsamEvent-2026-11-12-225057.ips",
+      "report_date": "2026-11-12 22:50:57.54 +0100",
+      "timeDelta": 41,
+      "genCounter": 0,
+      "largestProcess": "TVMusic",
+      "free_page_MiB": 969.1875,
+      "reasons": {
+        "per-process-limit": 1
+      },
+      "rivulet": [],
+      "largest_rpages": [
+        {
+          "name": "TVMusic",
+          "rpages_MiB": 628.3125
+        },
+        {
+          "name": "backboardd",
+          "rpages_MiB": 289.171875
+        },
+        {
+          "name": "HeadBoard",
+          "rpages_MiB": 54.1875
+        }
+      ]
+    }
+  ],
+  "probe": [
+    {
+      "run": "run1",
+      "variant": "flat-displaylink-disabled",
+      "idle": 0,
+      "other": 66
+    },
+    {
+      "run": "run1",
+      "variant": "flat-displaylink-enabled",
+      "idle": 0,
+      "other": 66
+    },
+    {
+      "run": "run1",
+      "variant": "flat-native-disabled",
+      "idle": 54,
+      "other": 18
+    },
+    {
+      "run": "run1",
+      "variant": "flat-native-enabled",
+      "idle": 54,
+      "other": 18
+    },
+    {
+      "run": "run1",
+      "variant": "row-displaylink-disabled",
+      "idle": 0,
+      "other": 11
+    },
+    {
+      "run": "run1",
+      "variant": "row-displaylink-enabled",
+      "idle": 0,
+      "other": 11
+    },
+    {
+      "run": "run2",
+      "variant": "flat-update-before-disabled",
+      "idle": 0,
+      "other": 66
+    },
+    {
+      "run": "run2",
+      "variant": "flat-update-scheduled-disabled",
+      "idle": 0,
+      "other": 66
+    },
+    {
+      "run": "run2",
+      "variant": "flat-displaylink-pulsed-disabled",
+      "idle": 0,
+      "other": 66
+    },
+    {
+      "run": "run2",
+      "variant": "row-native-disabled",
+      "idle": 9,
+      "other": 3
+    },
+    {
+      "run": "run2",
+      "variant": "flat-native-disabled",
+      "idle": 54,
+      "other": 18
+    }
+  ],
+  "limitations": [
+    "Warm run: process 1312, approximate Up/Down browsing; user had already visited the bottom before capture. No cold-start inference.",
+    "Fresh run: process 1383 launched by Instruments. User confirmed six Down/six Up from hero; a repeat was requested later, but exact second-pass completion and input timestamps were not logged. Do not claim a controlled two-pass leak test.",
+    "Allocation instrumentation adds overhead. These captures do not measure an optimization or provide comparable hitch timings.",
+    "Saving fresh trace reported overlapping /usr/lib/dyld timeline mappings. Allocation summaries and app stacks are visible, but exact per-library attribution has that limitation.",
+    "VM Tracker snapshot graphs were empty. Its legacy detail views were not accessible through xctrace show. No VM Tracker category totals are claimed.",
+    "Warm Time Profiler samples contain no memory-warning/purge stacks and do contain PosterCell.init. Absence of samples cannot prove no warning occurred.",
+    "Fresh OS log export contains no rows; the allocations run did not include Time Profiler. Absence of a warning in that export is not proof no warning occurred.",
+    "Jetsam reports are contextual, not matched one-to-one to earlier warning frames. Preserve timeDelta/genCounter; late aggregate reports must not be treated as fresh snapshots merely from their filenames.",
+    "rpages * pageSize follows Apple guidance. Per-process totals are not summed or equated with current NSCache use.",
+    "System media services may work for Rivulet, Apple apps, recording or other clients. These reports do not attribute their memory to a particular client.",
+    "Probe limitations, including simulator build mismatch, cheap flow-layout cells, stack-logging overhead and run2 foreground activation gap, are preserved in probe/results.json.",
+    "Live Rivulet private-gate inspection did not complete. Probe getters are diagnostic-only and no private API was added to Rivulet.",
+    "REA/Hopper bridge timed out; demo restrictions prevented saving its temporary database, which was closed without modifying the source artifact. Native evidence here is ipsw ARM64 disassembly, not successful Hopper decompilation."
+  ],
+  "UIKitCore": {
+    "build": "24K122",
+    "product": "AppleTV14,1",
+    "uuid": "F15B516A-EE84-3F05-BE55-0BE5F059BB9E",
+    "sha256": "09e2a1cb5a04f7cbe4e770db175b973a2a1d5f74638f03aed57e9d422f9507b2",
+    "evidence": [
+      "prefetching-allowed.s",
+      "idle-observer-gate.s",
+      "idle-until.s",
+      "prefetch-default.s",
+      "update-prefetched-cells.s"
+    ]
+  }
+}

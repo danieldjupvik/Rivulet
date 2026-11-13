@@ -129,8 +129,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
 
         collectionView = FocusScrollControlledCollectionView(frame: bounds, collectionViewLayout: makeLayout())
         collectionView.topBand = Self.detailsTopY
-        // We drive vertical scroll, so the engine's centring focus-scroll animator stays off.
-        collectionView.isScrollEnabled = false
+        collectionView.isScrollEnabled = true
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
@@ -182,6 +181,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         // large TOP INSET on the episodes section (see makeLayout), not by this.
         let topInset = Self.detailsTopY
         if collectionView.contentInset.top != topInset {
+            collectionView.cancelFocusScroll()
             collectionView.contentInset = UIEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
             collectionView.setContentOffset(CGPoint(x: 0, y: -topInset), animated: false)
         }
@@ -972,6 +972,8 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
     }
 
     func resetScroll() {
+        cancelSlide()
+        collectionView.cancelFocusScroll()
         collectionView.setContentOffset(CGPoint(x: 0, y: -Self.detailsTopY), animated: false)
     }
 
@@ -1031,19 +1033,21 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
 
     /// Slides the episodes up to the details top on the display link (see `offsetLink`).
     func slideToDetailsTop(animated: Bool, completion: (() -> Void)? = nil) {
+        collectionView.cancelFocusScroll()
         // Scroll so the first episode lands at detailsTopY — which is the focus
         // engine's preferred position (contentInset.top == detailsTopY), so
         // handing focus in afterward causes no re-scroll bounce.
         let targetY = max(0, bounds.height - Self.episodePeek - 2 * Self.detailsTopY)
-        guard animated else { setOffsetY(targetY); completion?(); return }
+        guard animated else { cancelSlide(); setOffsetY(targetY); completion?(); return }
         animateOffsetY(to: targetY, duration: 0.6, completion: completion)
     }
 
     /// Reverse of slideToDetailsTop: slide the episodes back down to the hero
     /// peek rest (drives the reverse choreography). Completion fires at the end.
     func slideToHeroRest(animated: Bool, completion: (() -> Void)? = nil) {
+        collectionView.cancelFocusScroll()
         let targetY = -Self.detailsTopY
-        guard animated else { setOffsetY(targetY); completion?(); return }
+        guard animated else { cancelSlide(); setOffsetY(targetY); completion?(); return }
         animateOffsetY(to: targetY, duration: 0.6, completion: completion)
     }
 
@@ -1067,6 +1071,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         offsetLink?.invalidate()
         offsetLink = nil
         offsetCompletion = nil
+        collectionView.isScrollEnabled = false
         offsetStartY = collectionView.contentOffset.y
         offsetTargetY = targetY
         offsetDuration = max(0.0001, duration)
@@ -1086,9 +1091,25 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         guard t >= 1 else { return }
         link.invalidate()
         offsetLink = nil
+        collectionView.isScrollEnabled = true
         let done = offsetCompletion
         offsetCompletion = nil
         done?()
+    }
+
+    private func cancelSlide() {
+        offsetLink?.invalidate()
+        offsetLink = nil
+        offsetCompletion = nil
+        collectionView.isScrollEnabled = true
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil, collectionView != nil {
+            cancelSlide()
+            collectionView.cancelFocusScroll()
+        }
     }
 
     deinit { offsetLink?.invalidate() }
@@ -1131,6 +1152,12 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
            let entry = castEntriesByID[id] {
             onSelectPerson?(entry.person)
         }
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        guard offsetLink == nil else { return }
+        targetContentOffset.pointee = collectionView.focusScrollTarget(proposed: targetContentOffset.pointee)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
