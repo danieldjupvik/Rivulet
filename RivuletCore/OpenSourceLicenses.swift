@@ -60,7 +60,7 @@ enum OpenSourceLicenses {
         [
             Entry(
                 name: "AetherEngine",
-                summary: "Video playback engine — the default player for on-demand titles. Dynamically linked and used under the GNU Lesser General Public License, version 3, with an Apple Store / DRM Exception. Copyright © 2026 Vincent Herbst. The complete corresponding source for the exact version linked by this app (tag 7.61.0, commit d612bed) is available at \(aetherSourceURL).",
+                summary: "Video playback engine — the default player for on-demand titles. Dynamically linked and used under the GNU Lesser General Public License, version 3, with an Apple Store / DRM Exception. Copyright © 2026 Vincent Herbst. The complete corresponding source for the exact version linked by this app (tag 7.66.1, commit d46c270) is available at \(aetherSourceURL).",
                 licenseText: aetherLGPLv3
             ),
             Entry(
@@ -119,11 +119,6 @@ enum OpenSourceLicenses {
                 licenseText: libunibreakZlib
             ),
             Entry(
-                name: "LibTrueHD",
-                summary: "Used to keep the height channels of Dolby TrueHD Atmos soundtracks. LibTrueHD 3.2.0, used under the MIT License. It includes the truehd and oamd crates from the truehdd project (https://github.com/truehdd/truehdd), Copyright © Rainbaby and the truehdd contributors, used under the Apache License, Version 2.0. Source: https://github.com/superuser404notfound/LibTrueHD (tag 3.2.0).",
-                licenseText: libTrueHDLicenses
-            ),
-            Entry(
                 name: "FluidAudio",
                 summary: "Runs the on-device speech model behind generated subtitles and the content filter. Used under the Apache License, Version 2.0. Source: https://github.com/FluidInference/FluidAudio",
                 licenseText: fluidAudioApache2
@@ -143,7 +138,19 @@ enum OpenSourceLicenses {
                 summary: "Used for crash and error diagnostics. Used under the MIT License.",
                 licenseText: sentryMIT
             ),
-        ]
+        ] + heightAudioEntries
+    }
+
+    /// Set by the host when its engine links LibTrueHD (a self-built height audio app, #609).
+    nonisolated(unsafe) static var linksLibTrueHD = true
+
+    private static var heightAudioEntries: [Entry] {
+        guard linksLibTrueHD else { return [] }
+        return [Entry(
+            name: "LibTrueHD",
+            summary: "Used to keep the height channels of Dolby TrueHD Atmos soundtracks. LibTrueHD 3.2.0, used under the MIT License. It includes the truehd and oamd crates from the truehdd project (https://github.com/truehdd/truehdd), Copyright © Rainbaby and the truehdd contributors, used under the Apache License, Version 2.0. Source: https://github.com/superuser404notfound/LibTrueHD (tag 3.2.0).",
+            licenseText: libTrueHDLicenses
+        )]
     }
 
     static let aetherLGPLv3 = #"""

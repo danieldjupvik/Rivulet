@@ -10,7 +10,6 @@
 import AVFoundation
 import Combine
 import Foundation
-import os
 import Sentry
 import SwiftUI
 import UIKit
@@ -793,7 +792,7 @@ final class AetherPlayer: PlayerProtocol {
                             panelSupportsDolbyVision: AetherEngine.displayCapabilities.supportsDolbyVision)
     }
     /// FEL or MEL for the current Profile 7 load, probed after it starts; nil otherwise.
-    private(set) var dolbyVisionEnhancementLayer: DolbyVisionEnhancementLayer?
+    private(set) var dolbyVisionEnhancementLayer: DolbyVisionLayerType?
     private var enhancementLayerURL: URL?
     var sourceVideoCodecName: String? { engine.sourceVideoCodecName }
     /// "720p → 1080p (ML)" while the upscale stage runs; nil when it never started.
@@ -1041,6 +1040,11 @@ final class AetherPlayer: PlayerProtocol {
         }
     }
 
+    /// Engine traits only a self-built app carries (#609, Scripts/enthusiast-build.py).
+    static let buildsFEL = AetherEngine.OptionalComponent.dualLayerDolbyVision.isBuiltIn
+    static let buildsHeightAudio = AetherEngine.OptionalComponent.trueHDObjectAudio.isBuiltIn
+        || AetherEngine.OptionalComponent.dtsxObjectAudio.isBuiltIn
+
     /// DVB teletext caption page, applied to BOTH live and VOD loads. A
     /// `liveTeletextPage` UserDefaults key overrides everything (0 = force
     /// libzvbi auto-detect); otherwise Australian regions default to 801
@@ -1187,27 +1191,17 @@ final class AetherPlayer: PlayerProtocol {
         )
         // Settings → Playback → Height Speakers: TrueHD Atmos and DTS:X keep their heights as a
         // rendered bed (lossless PCM, APAC on AirPlay) instead of 7.1 without them.
-        let heightLayout = SpatialSpeakerLayout(rawValue: UserDefaults.standard.string(forKey: Self.heightSpeakersKey) ?? "")
-        if let heightLayout { options.objectAudioRendering = .render(heightLayout) }
+        if Self.buildsHeightAudio,
+           let layout = SpatialSpeakerLayout(rawValue: UserDefaults.standard.string(forKey: Self.heightSpeakersKey) ?? "") {
+            options.objectAudioRendering = .render(layout)
+        }
         // Profile 7 FEL composes both layers (#345). The engine doesn't check the panel,
-        // so keep the native route (HDR10 base) where the TV can't show Dolby Vision.
-        // The FEL route renders heights too, so both settings apply to one title (#362).
-        let panelDV = AetherEngine.displayCapabilities.supportsDolbyVision
+        // so keep the native route where the TV can't show Dolby Vision.
         let felOn = UserDefaults.standard.bool(forKey: Self.dolbyVisionFELKey)
-        options.preferDualLayerDolbyVision = panelDV && felOn
+        options.preferDualLayerDolbyVision = Self.buildsFEL && felOn && AetherEngine.displayCapabilities.supportsDolbyVision
         // The engine takes it only for SDR below 1080p and switches it off if it can't keep up.
         options.upscalesLowResolutionVideo = UserDefaults.standard.bool(forKey: Self.upscaleKey)
         options.audioDelaySeconds = AudioSync.seconds()
-        // #362: catch the engine's one Profile 7 route line for Sentry. Live TV's capture owns the
-        // handler while it runs, and VOD never loads then.
-        let p7RouteLine = OSAllocatedUnfairLock<String?>(initialState: nil)
-        let ownsLogHandler = EngineLog.handler == nil
-        if ownsLogHandler {
-            EngineLog.handler = { @Sendable line in
-                if line.contains("DV P7 dual-layer route:") { p7RouteLine.withLock { $0 = line } }
-            }
-        }
-        defer { if ownsLogHandler { EngineLog.handler = nil } }
         // Read ahead as far as the engine's disk budget allows; live sizes its own window.
         if !isLive { options.forwardBufferSegments = .max }
         // New content, so the previous item's aspect ratio describes nothing.
@@ -1240,18 +1234,7 @@ final class AetherPlayer: PlayerProtocol {
             errorSubject.send(pe)
             throw pe
         }
-        if let routeLine = p7RouteLine.withLock({ $0 }) {
-            dolbyVisionEnhancementLayer = DolbyVisionEnhancementLayer(routeLine: routeLine)
-            SentryBridge.log(.info, "DV P7 route", attributes: [
-                "engine_route": routeLine,
-                "panel_dv": panelDV,
-                "height_speakers": heightLayout?.rawValue ?? "off",
-                "fel_setting": felOn
-            ])
-        }
-        if engine.sourceDVProfile == 7, dolbyVisionEnhancementLayer == nil {
-            probeEnhancementLayer(url: url, headers: headers ?? [:])
-        }
+        if engine.sourceDVProfile == 7 { probeEnhancementLayer(url: url, headers: headers ?? [:]) }
         assFonts = engine.fontAttachments.map { LibassRenderer.Font(name: $0.filename, data: $0.data) }
         // The track may have been published during the load with no fonts;
         // republish so the renderer is built with them.
@@ -1262,7 +1245,7 @@ final class AetherPlayer: PlayerProtocol {
     /// Reads the stream head once more for the RPU's el_type, off the start path.
     private func probeEnhancementLayer(url: URL, headers: [String: String]) {
         Task { [weak self] in
-            let layer = await Task.detached(priority: .utility) { () -> DolbyVisionEnhancementLayer? in
+            let layer = await Task.detached(priority: .utility) { () -> DolbyVisionLayerType? in
                 switch try? AetherEngine.probeDolbyVisionEnhancementLayer(url: url, options: LoadOptions(httpHeaders: headers)) {
                 case .fel: .full
                 case .mel: .minimal

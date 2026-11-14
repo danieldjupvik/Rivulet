@@ -51,8 +51,8 @@ Apply upstream's technical and product-fit review standards before calling a cha
 ## Features the fork intentionally retains
 
 - Keep Dolby Vision Profile 7 FEL composition, Height Speakers / TrueHD Atmos and DTS:X height rendering, and Dolby Vision still reshaping.
-- Upstream commit 60bc2b23c82ecf05611a4ea0d63ab42cca3aaa7f removes those features. Do not silently accept that removal during a sync. Prefer normal upstream ancestry with a separate fork restoration commit over cherry-picking every other upstream commit.
-- Preserve all four AetherEngine traits: DualLayerDolbyVision, DolbyVisionStillReshaping, TrueHDObjectAudio, DTSXObjectAudio. Retention also requires playback configuration, settings, localization, diagnostics, tests, notices, and resolved dependencies; traits alone are insufficient.
+- Upstream now provides the tvOS self-build implementation in `Scripts/enthusiast-build.py`. Use its player, conditional settings, and license notices rather than restoring a separate implementation. Lab commits all four AetherEngine traits: DualLayerDolbyVision, DolbyVisionStillReshaping, TrueHDObjectAudio, DTSXObjectAudio, alongside DolbyVisionFelCurves and the resolved LibTrueHD dependency. The trait-restoration CI check permits these only for Lab identity. The shared LibTrueHD license notice defaults on because all three Lab app targets link it; upstream only enables that notice from tvOS startup.
+- FEL stays off for new installs; preserve explicit choices and the existing-install default migration. Height rendering requires choosing a speaker layout. Compiling these capabilities in does not enable either playback option. Physical FEL and height-audio playback still require device validation.
 - Keep fork bundle IDs, signing, and app groups. Use the fork-owned iCloud.com.danieldjupvik.rivulet.lab.sync container in both app entitlements and AccountVault. Incoming iCloud settings must match the fork's provisioning, not upstream's container.
 
 ## Branch roles (snapshot: 2026-11-06)
@@ -74,3 +74,10 @@ The sync branch sync/upstream-2026-11-06 was created from fork main 96fac940. Co
 - AetherEngine 7.57.0 retains the four traits; the restoration pins LibTrueHD 3.2.0. The combined app builds and all 11 targeted Dolby/settings tests pass. The broader suite has known Emby app-name/timezone test failures left unchanged by request, plus a theme-video timing failure that passed an isolated rerun. Physical Dolby playback and cross-device iCloud sync still need validation.
 
 Build and test the combined result before proposing a merge. Leave the parked experiments alone. These notes are context, not standing authorization to commit, push, merge, or publish.
+
+## Sync decisions (2026-11-14)
+
+- Keep Lab identity, signing, app groups, URL scheme and iCloud container.
+- Keep native focus scrolling and episode artwork effects. The artwork contribution remains open upstream; do not overwrite that branch.
+- Prefer upstream's integrated episode navigation, badge styling, language matching and playback reporting, including maintainer refinements.
+- Keep upstream project format; exclude incidental Xcode serialization changes from the sync.

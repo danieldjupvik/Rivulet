@@ -18,6 +18,7 @@ import Sentry
 struct RivuletApp: App {
     init() {
         HostPlatform.installUIKit()
+        PlexAPI.setPlayerTitle(UIDevice.current.name)
         StartupTimer.arm()
         StartupTimer.mark("RivuletApp.init")
         // Other servers' library settings belong to their own users, so they load with the sign-in.
@@ -39,6 +40,7 @@ struct RivuletApp: App {
         // before any read. An explicit user choice still wins.
         UserDefaults.standard.register(defaults: ["showHomeHero": true])
         SkipLengthKeys.migrateLegacyKeys()
+        OpenSourceLicenses.linksLibTrueHD = AetherPlayer.buildsHeightAudio
         // Every surface is dark artwork, so menus, popups and alerts stay dark in Light mode
         // too; Settings alone follows the system. On the window: SwiftUI's preferredColorScheme
         // never reached UIKit's presented popups.
