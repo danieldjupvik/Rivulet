@@ -4789,6 +4789,22 @@
         }
       }
     },
+    "Select to show or hide your favorite Live TV channels on Home. Once they are shown, hold Select to move them up or down." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drücke die Auswahltaste, um deine Lieblingssender auf der Startseite ein- oder auszublenden. Werden sie angezeigt, halte die Taste gedrückt, um sie zu verschieben."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionnez pour afficher ou masquer vos chaînes favorites sur l’accueil. Une fois affichées, maintenez Sélectionner pour les déplacer."
+          }
+        }
+      }
+    },
     "Select to show or hide your favorite movies on Home. Once they are shown, hold Select to move them up or down." : {
       "localizations" : {
         "de" : {
@@ -8469,6 +8485,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bonus"
+          }
+        }
+      }
+    },
+    "Favorite Channels" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lieblingssender"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Αγαπημένα κανάλια"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaînes favorites"
           }
         }
       }
@@ -14475,16 +14513,6 @@
         }
       }
     },
-    "Plays the full Dolby Vision Profile 7 layer on a Dolby Vision TV, without AirPlay or Picture in Picture. Off plays it as 8.1." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gibt die vollständige Ebene von Dolby Vision Profil 7 auf einem Dolby-Vision-Fernseher wieder, ohne AirPlay oder Bild-in-Bild. Bei „Aus“ wird Profil 7 als 8.1 wiedergegeben."
-          }
-        }
-      }
-    },
     "Plays each video clip in full when a slideshow reaches it, then carries on with the next photo. When off, slideshows skip them." : {
       "localizations" : {
         "de" : {
@@ -14513,6 +14541,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sur Plex, lit bandes-annonces et vidéo de préprogramme du serveur avant un film lancé depuis le début. Les réglages du serveur décident."
+          }
+        }
+      }
+    },
+    "Plays the full Dolby Vision Profile 7 layer on a Dolby Vision TV, without AirPlay or Picture in Picture. Off plays it as 8.1." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gibt die vollständige Ebene von Dolby Vision Profil 7 auf einem Dolby-Vision-Fernseher wieder, ohne AirPlay oder Bild-in-Bild. Bei „Aus“ wird Profil 7 als 8.1 wiedergegeben."
           }
         }
       }

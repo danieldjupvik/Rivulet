@@ -312,6 +312,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         request.addValue(PlexAPI.clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
         request.addValue(PlexAPI.productName, forHTTPHeaderField: "X-Plex-Product")
         request.addValue(PlexAPI.platform, forHTTPHeaderField: "X-Plex-Platform")
+        request.addValue(PlexAPI.playerTitle, forHTTPHeaderField: "X-Plex-Device-Name")
 
         let (data, response) = try await session.data(for: request)
 
@@ -383,7 +384,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         // Only Plex Media Servers. Each device's `machineIdentifier` is populated
         // at decode time from its `clientIdentifier` (the same value the old
         // pms/servers.xml fetch returned), so no separate round-trip is needed.
-        let servers = devices.filter { $0.provides == "server" }
+        let servers = devices.filter(\.isServer)
         PlexCertificateDelegate.registerCertificateHashes(from: servers)
         return servers
     }
@@ -1442,8 +1443,8 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
     }
 
     /// Whether `authToken` administers the server: `/accounts` answers 200 for the
-    /// owner and 401 otherwise.
-    func canAdministerServer(serverURL: String, authToken: String) async -> Bool {
+    /// owner and 401 otherwise. nil when the server gave no answer (a failed request, a 5xx).
+    func canAdministerServer(serverURL: String, authToken: String) async -> Bool? {
         guard let url = URL(string: "\(serverURL)/accounts?X-Plex-Container-Start=0&X-Plex-Container-Size=1") else {
             return false
         }
@@ -1451,22 +1452,33 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
         for (key, value) in plexHeaders(authToken: authToken) {
             request.addValue(value, forHTTPHeaderField: key)
         }
-        guard let (_, response) = try? await session.data(for: request) else { return false }
-        return (response as? HTTPURLResponse)?.statusCode == 200
+        guard let (_, response) = try? await session.data(for: request),
+              let status = (response as? HTTPURLResponse)?.statusCode else { return nil }
+        switch status {
+        case 200: return true
+        case 401, 403: return false
+        default: return nil
+        }
     }
 
     /// Whether the server's "Allow media deletion" setting is on (`allowMediaDeletion` on `/`).
-    func allowsMediaDeletion(serverURL: String, authToken: String) async -> Bool {
+    /// nil when the read failed.
+    func allowsMediaDeletion(serverURL: String, authToken: String) async -> Bool? {
         guard let url = URL(string: serverURL) else { return false }
-        let root: PlexServerRootWrapper? = try? await request(url, headers: plexHeaders(authToken: authToken))
-        return root?.MediaContainer.allowMediaDeletion == true
+        guard let root: PlexServerRootWrapper = try? await request(url, headers: plexHeaders(authToken: authToken)) else {
+            return nil
+        }
+        return root.MediaContainer.allowMediaDeletion == true
     }
 
     /// Whether `authToken` may delete media: the owner, with "Allow media deletion" on.
-    func canDeleteMedia(serverURL: String, authToken: String) async -> Bool {
+    /// nil when either read went unanswered, so a slow remote connection is asked again.
+    func canDeleteMedia(serverURL: String, authToken: String) async -> Bool? {
         async let admin = canAdministerServer(serverURL: serverURL, authToken: authToken)
         async let allowed = allowsMediaDeletion(serverURL: serverURL, authToken: authToken)
         let (isAdmin, isAllowed) = await (admin, allowed)
+        if isAdmin == false || isAllowed == false { return false }
+        guard let isAdmin, let isAllowed else { return nil }
         return isAdmin && isAllowed
     }
 
@@ -1621,6 +1633,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             URLQueryItem(name: "X-Plex-Token", value: authToken),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: PlexAPI.clientIdentifier),
             URLQueryItem(name: "X-Plex-Platform", value: PlexAPI.platform),
+            URLQueryItem(name: "X-Plex-Device-Name", value: PlexAPI.playerTitle),
             URLQueryItem(name: "X-Plex-Device", value: PlexAPI.deviceName)
         ])
         components.queryItems = existingItems
@@ -1648,6 +1661,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             URLQueryItem(name: "X-Plex-Token", value: authToken),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: PlexAPI.clientIdentifier),
             URLQueryItem(name: "X-Plex-Platform", value: PlexAPI.platform),
+            URLQueryItem(name: "X-Plex-Device-Name", value: PlexAPI.playerTitle),
             URLQueryItem(name: "X-Plex-Device", value: PlexAPI.deviceName),
             URLQueryItem(name: "X-Plex-Product", value: PlexAPI.productName)
         ])
@@ -1690,6 +1704,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
                 URLQueryItem(name: "X-Plex-Token", value: authToken),
                 URLQueryItem(name: "X-Plex-Client-Identifier", value: PlexAPI.clientIdentifier),
                 URLQueryItem(name: "X-Plex-Platform", value: PlexAPI.platform),
+                URLQueryItem(name: "X-Plex-Device-Name", value: PlexAPI.playerTitle),
                 URLQueryItem(name: "X-Plex-Device", value: PlexAPI.deviceName),
                 URLQueryItem(name: "X-Plex-Product", value: PlexAPI.productName),
 
@@ -1742,6 +1757,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
                 URLQueryItem(name: "X-Plex-Token", value: authToken),
                 URLQueryItem(name: "X-Plex-Client-Identifier", value: PlexAPI.clientIdentifier),
                 URLQueryItem(name: "X-Plex-Platform", value: PlexAPI.platform),
+                URLQueryItem(name: "X-Plex-Device-Name", value: PlexAPI.playerTitle),
                 URLQueryItem(name: "X-Plex-Device", value: PlexAPI.deviceName),
                 URLQueryItem(name: "X-Plex-Product", value: PlexAPI.productName),
 
@@ -1814,6 +1830,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             URLQueryItem(name: "X-Plex-Token", value: authToken),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: PlexAPI.clientIdentifier),
             URLQueryItem(name: "X-Plex-Platform", value: PlexAPI.platform),
+            URLQueryItem(name: "X-Plex-Device-Name", value: PlexAPI.playerTitle),
             URLQueryItem(name: "X-Plex-Device", value: PlexAPI.deviceName),
             URLQueryItem(name: "X-Plex-Product", value: PlexAPI.productName),
 
@@ -3073,6 +3090,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             URLQueryItem(name: "X-Plex-Token", value: authToken),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: PlexAPI.clientIdentifier),
             URLQueryItem(name: "X-Plex-Platform", value: PlexAPI.platform),
+            URLQueryItem(name: "X-Plex-Device-Name", value: PlexAPI.playerTitle),
             URLQueryItem(name: "X-Plex-Device", value: PlexAPI.deviceName),
             URLQueryItem(name: "X-Plex-Product", value: PlexAPI.productName)
         ]
@@ -3092,6 +3110,7 @@ class PlexNetworkManager: NSObject, @unchecked Sendable {
             "X-Plex-Client-Identifier": PlexAPI.clientIdentifier,
             "X-Plex-Product": PlexAPI.productName,
             "X-Plex-Platform": PlexAPI.platform,
+            "X-Plex-Device-Name": PlexAPI.playerTitle,
             "X-Plex-Device": PlexAPI.deviceName
         ]
 

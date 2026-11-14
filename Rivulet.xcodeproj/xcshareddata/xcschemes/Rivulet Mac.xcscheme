@@ -45,7 +45,8 @@
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
-      debugServiceExtension = "internal">
+      debugServiceExtension = "internal"
+     >
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
