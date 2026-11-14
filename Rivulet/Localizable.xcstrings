@@ -14545,16 +14545,6 @@
         }
       }
     },
-    "Plays the full Dolby Vision Profile 7 layer on a Dolby Vision TV, without AirPlay or Picture in Picture. Off plays it as 8.1." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gibt die vollständige Ebene von Dolby Vision Profil 7 auf einem Dolby-Vision-Fernseher wieder, ohne AirPlay oder Bild-in-Bild. Bei „Aus“ wird Profil 7 als 8.1 wiedergegeben."
-          }
-        }
-      }
-    },
     "Please sign in to Rivulet first" : {
       "localizations" : {
         "de" : {

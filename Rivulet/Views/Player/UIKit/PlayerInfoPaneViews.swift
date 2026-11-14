@@ -682,7 +682,7 @@ enum DolbyVisionPlayback: String, Equatable {
 }
 
 /// A Profile 7 source's enhancement layer, for the Details tab.
-enum DolbyVisionEnhancementLayer: String, Equatable {
+enum DolbyVisionLayerType: String, Equatable {
     case full = "Full (FEL)"
     case minimal = "Minimal (MEL)"
 
@@ -691,16 +691,6 @@ enum DolbyVisionEnhancementLayer: String, Equatable {
         switch self {
         case .full: String(localized: "Full (FEL)")
         case .minimal: String(localized: "Minimal (MEL)")
-        }
-    }
-
-    init?(routeLine: String) {
-        if routeLine.contains("el_type=FEL") || routeLine.contains("over the real-time budget") {
-            self = .full
-        } else if routeLine.contains("el_type=MEL") {
-            self = .minimal
-        } else {
-            return nil
         }
     }
 }
@@ -940,7 +930,7 @@ final class PlayerDetailsPaneView: UIView {
 
     static func mediaSections(metadata: PlexMetadata, modes: StreamingModeInfo,
                               dolbyVision: DolbyVisionPlayback? = nil,
-                              enhancementLayer: DolbyVisionEnhancementLayer? = nil,
+                              enhancementLayer: DolbyVisionLayerType? = nil,
                               enhanceDialogue: String? = nil,
                               upscale: String? = nil) -> [Section] {
         let media = metadata.Media?.first

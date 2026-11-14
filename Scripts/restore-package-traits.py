@@ -2,8 +2,7 @@
 """Put the committed SwiftPM package traits back into project.pbxproj.
 
 Codemagic's `xcode-project use-profiles` re-saves the project through the
-xcodeproj gem, which drops the `traits` attribute it does not know. Without
-them AetherEngine builds with object audio and dual-layer Dolby Vision off.
+xcodeproj gem, which drops the `traits` attribute it does not know.
 Run it after `use-profiles`; it fails the build if a trait cannot be restored.
 """
 import re
@@ -34,5 +33,10 @@ found = {m[2] for m in REF.finditer(project) if TRAITS.search(m[1])}
 missing = [name for ref, (name, _) in wanted.items() if ref not in found]
 if missing:
     sys.exit(f"Package traits missing for: {', '.join(missing)}")
+is_lab = "PRODUCT_BUNDLE_IDENTIFIER = com.danieldjupvik.rivulet.lab;" in committed
 for name, block in wanted.values():
-    print(name, "traits:", ", ".join(re.findall(r"\t\t\t\t(\w+),", block)))
+    traits = re.findall(r"\t\t\t\t(\w+),", block)
+    print(name, "traits:", ", ".join(traits))
+    # Self-built only (Scripts/enthusiast-build.py); never in a store build.
+    if not is_lab and name == "AetherEngine" and {"DualLayerDolbyVision", "DolbyVisionStillReshaping", "TrueHDObjectAudio", "DTSXObjectAudio"} & set(traits):
+        sys.exit("AetherEngine has self-build-only traits committed; run Scripts/enthusiast-build.py with no flags")

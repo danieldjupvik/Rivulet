@@ -624,15 +624,26 @@ enum SettingsContent {
                                          })),
             .header("Home Theater"),
             toggle("upscaleLowResolution", "Upscale SD and 720p", key: AetherPlayer.upscaleKey, default: false),
-            toggle("dolbyVisionFEL", "Dolby Vision FEL", key: AetherPlayer.dolbyVisionFELKey, default: false),
-            SettingsRowItem(id: "heightSpeakers", title: "Height Speakers",
-                            kind: .navigationValue(.heightSpeakersPicker, value: { heightSpeakers.isEmpty ? String(localized: "Off") : heightSpeakers })),
+        ] + selfBuiltHomeTheaterRows + [
             .header("Filtering"),
             SettingsRowItem(id: "cat_contentFilter", title: "Content Filtering",
                             kind: .navigationValue(.contentFilter, value: {
                                 SettingsStore.bool(ContentFilterManager.Keys.enabled, default: false) ? String(localized: "On") : String(localized: "Off")
                             })),
         ]
+    }
+
+    /// Rows for the self-built options (#609, Scripts/enthusiast-build.py); none in the App Store build.
+    private static var selfBuiltHomeTheaterRows: [SettingsRowItem] {
+        var rows: [SettingsRowItem] = []
+        if AetherPlayer.buildsFEL {
+            rows.append(toggle("dolbyVisionFEL", "Dolby Vision FEL", key: AetherPlayer.dolbyVisionFELKey, default: false))
+        }
+        if AetherPlayer.buildsHeightAudio {
+            rows.append(SettingsRowItem(id: "heightSpeakers", title: "Height Speakers",
+                                        kind: .navigationValue(.heightSpeakersPicker, value: { heightSpeakers.isEmpty ? String(localized: "Off") : heightSpeakers })))
+        }
+        return rows
     }
 
     private static var generatedSubtitlesValue: String {
