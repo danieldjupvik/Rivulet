@@ -52,6 +52,20 @@ struct NativeFocusScrollCoordinatorTests {
         #expect(h.scroll.animatedOffsets.isEmpty)
     }
 
+    @Test func acceptedNativeDestinationInvalidatesADifferingQueuedFallback() {
+        let h = Harness()
+        h.coordinator.focusChanged(to: h.item, target: CGPoint(x: 0, y: 500))
+        let nativeTarget = CGPoint(x: 0, y: 900)
+        let destination = h.coordinator.targetContentOffset(proposed: .zero, preferred: nativeTarget)
+        #expect(destination == nativeTarget)
+        #expect(h.coordinator.targetOffset == nativeTarget)
+        let writes = h.scroll.immediateOffsets.count
+        h.finishFocusUpdate()
+        #expect(h.coordinator.targetOffset == nativeTarget)
+        #expect(h.scroll.animatedOffsets.isEmpty)
+        #expect(h.scroll.immediateOffsets.count == writes)
+    }
+
     @Test func subsequentFocusDoesNotReplaceAnActiveEngineScroll() {
         let h = Harness()
         let target = CGPoint(x: 0, y: 500)

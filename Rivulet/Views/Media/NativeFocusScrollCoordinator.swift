@@ -67,6 +67,9 @@ final class NativeFocusScrollCoordinator {
             return proposed
         }
         let preferred = clamped(requested)
+        if let pendingFocusTarget, pendingFocusTarget != preferred {
+            invalidatePendingFocus()
+        }
         nativeFocusTarget = preferred
         programmaticTarget = nil
         return preferred
