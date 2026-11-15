@@ -55,6 +55,15 @@
       }
     },
     {
+      "identity" : "openwatchparty",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/edde746/openwatchparty",
+      "state" : {
+        "revision" : "d2579d7c7e9fce1bf3844f04379d6bc009b219c0",
+        "version" : "1.1.0"
+      }
+    },
+    {
       "identity" : "sentry-cocoa",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/getsentry/sentry-cocoa",
