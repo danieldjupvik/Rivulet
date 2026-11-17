@@ -57,6 +57,46 @@ struct BelowFoldInitialSelectionTests {
         #expect(provider.playbackCalls == ["detail(show)"])
     }
 
+    @Test(arguments: [false, true])
+    func initialFocusDuringSlidePreservesTheSelectedSeasonLanding(animated: Bool) async throws {
+        let provider = makeProvider()
+        MediaProviderRegistry.shared.register(provider)
+        defer { MediaProviderRegistry.shared.unregister(providerID: provider.id) }
+        let view = BelowFoldCollectionView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        view.isUserInteractionEnabled = false
+        let host = FocusHost(view)
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = view.frame
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        try await load(view, item: item("show", .show), full: false)
+        view.layoutIfNeeded()
+        let collection = try #require(view.subviews.compactMap { $0 as? FocusScrollControlledCollectionView }.first)
+        let target = IndexPath(item: 21, section: 0)
+        let cell = try #require(collection.cellForItem(at: target))
+        let rail = try #require(enclosingScroller(of: cell, in: collection))
+        let initialX = rail.contentOffset.x
+        var completed = false
+        var focusedDuringSlide = false
+        view.onEpisodeFocused = { episode in
+            if episode?.ref.itemID == "s3e4", !completed { focusedDuringSlide = true }
+        }
+        view.slideToDetailsTop(animated: animated, travelDistance: 1035, onReadyForFocus: {
+            view.isUserInteractionEnabled = true
+            host.setNeedsFocusUpdate()
+            host.updateFocusIfNeeded()
+        }, completion: { completed = true })
+        try await waitUntil { completed }
+        try await waitUntil { collection.focusedEpisodeIndexPath == target }
+        if animated { #expect(focusedDuringSlide) }
+        #expect(collection.focusedEpisodeIndexPath == target)
+        #expect(abs(rail.contentOffset.x - initialX) < 1)
+        try await waitUntil { rail.isScrollEnabled }
+        #expect(collection.isScrollEnabled)
+    }
+
     /// The full load finishing after the user entered the rail must not scroll it under them.
     @Test func lateFullLoadLeavesAFocusedRailAlone() async throws {
         let provider = makeProvider()
@@ -74,6 +114,7 @@ struct BelowFoldInitialSelectionTests {
         try await load(view, item: item("show", .show), full: false)
         view.layoutIfNeeded()
         let collection = try #require(view.subviews.compactMap { $0 as? FocusScrollControlledCollectionView }.first)
+        view.slideToDetailsTop(animated: false)
         host.setNeedsFocusUpdate()
         host.updateFocusIfNeeded()
         try await waitUntil { collection.focusedEpisodeIndexPath != nil }
@@ -152,10 +193,11 @@ struct BelowFoldInitialSelectionTests {
         try await waitUntil { loaded }
     }
 
-    private func waitUntil(_ condition: () -> Bool) async throws {
+    private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation,
+                           _ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(5)
         while !condition() {
-            try #require(ContinuousClock.now < deadline, "timed out")
+            try #require(ContinuousClock.now < deadline, "timed out", sourceLocation: sourceLocation)
             try await Task.sleep(for: .milliseconds(10))
         }
     }
