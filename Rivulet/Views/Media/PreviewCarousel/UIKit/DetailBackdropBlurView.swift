@@ -4,8 +4,8 @@
 import UIKit
 
 final class DetailBackdropBlurView: UIView {
-    private let effectView = UIVisualEffectView(effect: nil)
-    private var blurAnimator: UIViewPropertyAnimator?
+    private let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
+    private let effectMask = UIView()
 
     init() {
         super.init(frame: .zero)
@@ -18,23 +18,21 @@ final class DetailBackdropBlurView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("DetailBackdropBlurView is not Storyboard-backed") }
 
-    deinit { blurAnimator?.stopAnimation(true) }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if effectMask.frame != effectView.bounds { applyMask() }
+    }
 
     func update(progress: CGFloat) {
         let p = max(0, min(1, progress))
         isHidden = p == 0
-        animatorIfNeeded().fractionComplete = min(0.999, max(0.001, p))
+        effectMask.backgroundColor = UIColor.white.withAlphaComponent(p)
+        applyMask()
     }
 
-    private func animatorIfNeeded() -> UIViewPropertyAnimator {
-        if let blurAnimator { return blurAnimator }
-        let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak self] in
-            self?.effectView.effect = UIBlurEffect(style: .dark)
-        }
-        animator.pausesOnCompletion = true
-        animator.startAnimation()
-        animator.pauseAnimation()
-        blurAnimator = animator
-        return animator
+    private func applyMask() {
+        effectMask.frame = effectView.bounds
+        // UIKit copies effect-view masks, so reassign after changing their fill or bounds.
+        effectView.mask = effectMask
     }
 }
