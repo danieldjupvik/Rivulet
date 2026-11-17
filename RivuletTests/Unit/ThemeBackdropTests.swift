@@ -2,6 +2,7 @@
 // Copyright (C) 2025-2026 Bain Gurley
 
 import AVFoundation
+import Testing
 import UIKit
 import XCTest
 @testable import Rivulet
@@ -269,5 +270,93 @@ final class ThemeBackdropTests: XCTestCase {
         XCTAssertNil(backdrop.layer.player)
         XCTAssertEqual(backdrop.layer.opacity, 0)
         XCTAssertEqual(switches.lookups.count, 1)
+    }
+}
+
+@MainActor
+struct DetailBackdropBlurTests {
+    @Test func entryReturnAndReversalKeepTheEffectHierarchyOpaque() throws {
+        let view = DetailBackdropBlurView()
+        view.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        view.layoutIfNeeded()
+        let effect = try #require(view.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+
+        for progress: CGFloat in [-0.5, 0, 0.25, 0.5, 0.25, 1, 1.5, 0.75, 0] {
+            view.update(progress: progress)
+            #expect(view.alpha == 1)
+            #expect(view.isHidden == (progress <= 0))
+            #expect(effect.effect is UIBlurEffect)
+            #expect(effect.alpha == 1)
+            #expect(effect.frame == view.bounds)
+            #expect(effect.contentView.subviews.isEmpty,
+                    "A sharp artwork cover would hide a video behind the backdrop")
+        }
+        view.frame.size = CGSize(width: 960, height: 540)
+        view.layoutIfNeeded()
+        #expect(effect.frame == view.bounds)
+    }
+
+    @Test func videoStartingAndStoppingMidSlideKeepsTheSameFade() async throws {
+        let bundle = Bundle(for: FixtureBundle.self)
+        let file = try #require(bundle.url(forResource: "hero-theme", withExtension: "mp4")
+            ?? bundle.url(forResource: "hero-theme", withExtension: "mp4", subdirectory: "Fixtures"))
+        let backdrop = ThemeBackdrop(resolve: { _ in file }, systemAllows: { true }, isForeground: { true })
+        backdrop.isCovered = { false }
+        let artwork = UIImageView(image: image())
+        let video = ThemeVideoBackdropView(backdrop: backdrop)
+        let view = DetailBackdropBlurView()
+        artwork.addSubview(video)
+        artwork.addSubview(view)
+        let effect = try #require(view.subviews.compactMap { $0 as? UIVisualEffectView }.first)
+        view.update(progress: 0.4)
+        backdrop.item = MediaItemRef(providerID: "detail-backdrop-test", itemID: "title")
+        video.setActive(true)
+        defer { video.setActive(false) }
+
+        let deadline = ContinuousClock.now + .seconds(5)
+        while backdrop.layer.opacity < 1 {
+            try #require(ContinuousClock.now < deadline, "The local video fixture must display its first frame")
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let player = try #require(backdrop.layer.player)
+        #expect(view.alpha == 1)
+        #expect(effect.effect is UIBlurEffect)
+        for progress: CGFloat in [0.6, 1, 0.6, 0] {
+            view.update(progress: progress)
+            #expect(view.alpha == 1)
+            #expect(effect.effect is UIBlurEffect)
+            #expect(effect.alpha == 1)
+            #expect(effect.contentView.subviews.isEmpty)
+            #expect(backdrop.layer.player === player)
+            #expect(player.rate > 0, "The fade must not pause or replace the playing backdrop")
+        }
+
+        view.update(progress: 0.4)
+        video.setActive(false)
+        #expect(backdrop.layer.player == nil)
+        #expect(view.alpha == 1)
+        #expect(effect.effect is UIBlurEffect)
+        #expect(effect.contentView.subviews.isEmpty)
+        view.update(progress: 0)
+        #expect(view.isHidden)
+    }
+
+    @Test func pausedAnimatorDoesNotRetainTheBackdrop() {
+        weak var releasedView: DetailBackdropBlurView?
+        do {
+            let view = DetailBackdropBlurView()
+            view.update(progress: 0.5)
+            releasedView = view
+        }
+        #expect(releasedView == nil)
+    }
+
+    private final class FixtureBundle: NSObject {}
+
+    private func image() -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        }
     }
 }

@@ -41,4 +41,51 @@ struct SeasonPillFocusTests {
     private func descendants(of view: UIView) -> [UIView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
+
+    @Test(arguments: ["Season 1", "A much longer season title"])
+    func focusKeepsLayoutStableAndResetsAfterResize(title: String) throws {
+        let pill = SeasonPillView(frame: .zero)
+        pill.configure(label: title, isSelected: true)
+        let size = pill.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        pill.frame = CGRect(origin: .zero, size: size)
+        pill.layoutIfNeeded()
+        let background = try #require(pill.subviews.first { !($0 is UILabel) })
+        let label = try #require(pill.subviews.compactMap { $0 as? UILabel }.first)
+        let originalFrame = pill.frame
+        let originalFont = label.font
+
+        pill.setFocused(true)
+        #expect(pill.frame == originalFrame)
+        #expect(label.font == originalFont)
+        #expect(abs(background.frame.width - size.width - 8) < 0.01)
+        #expect(abs(background.frame.height - size.height - 8) < 0.01)
+        #expect(abs(background.center.y - pill.bounds.midY) < 0.01)
+        #expect(label.transform.a == label.transform.d)
+
+        pill.bounds.size.width += 100
+        pill.setNeedsLayout()
+        pill.layoutIfNeeded()
+        #expect(abs(background.frame.width - pill.bounds.width - 8) < 0.01)
+        pill.setFocused(false)
+        #expect(background.transform == .identity)
+        #expect(label.transform == .identity)
+        #expect(background.frame == pill.bounds)
+    }
+
+    @Test func selectedAppearanceReturnsWhenFocusLeavesAnotherSeason() throws {
+        let selected = SeasonPillView(frame: .zero)
+        let other = SeasonPillView(frame: .zero)
+        selected.configure(label: "Season 1", isSelected: true)
+        other.configure(label: "Season 2", isSelected: false)
+        let row = UIStackView(arrangedSubviews: [selected, other])
+        let selectedBackground = try #require(selected.subviews.first { !($0 is UILabel) })
+        let selectedFill = selectedBackground.backgroundColor
+
+        withExtendedLifetime(row) {
+            other.setFocused(true)
+            #expect(selectedBackground.backgroundColor == .clear)
+            other.setFocused(false)
+            #expect(selectedBackground.backgroundColor == selectedFill)
+        }
+    }
 }

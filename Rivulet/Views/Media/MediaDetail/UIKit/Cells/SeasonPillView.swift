@@ -7,6 +7,7 @@ import UIKit
 
 final class SeasonPillView: UIControl {
 
+    private let capsuleBackground = UIView()
     private let label = UILabel()
     private var isSelectedSeason = false
     private var isFocusedPill = false
@@ -53,28 +54,34 @@ final class SeasonPillView: UIControl {
 
     private func commonInit() {
         translatesAutoresizingMaskIntoConstraints = false
-        layer.cornerCurve = .continuous
-        layer.borderWidth = 1
-        layer.borderColor = UIColor.clear.cgColor
+
+        capsuleBackground.isUserInteractionEnabled = false
+        capsuleBackground.layer.cornerCurve = .continuous
+        capsuleBackground.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(capsuleBackground)
 
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            // Capsule padding. The capsule's LEFT edge sits on the shared content
-            // edge (the row leading); the text is naturally indented inside it.
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 32),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -32),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 30),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -30),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             // Measured on device (tvOS 27): 66 tall, radius 33.
             heightAnchor.constraint(equalToConstant: 66),
         ])
+        updateFont()
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: SeasonPillView, _) in
+            self.updateFont()
+        }
         applyStyle()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Capsule: corner radius = half the height.
-        layer.cornerRadius = bounds.height / 2
+        capsuleBackground.bounds = CGRect(origin: .zero, size: bounds.size)
+        capsuleBackground.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        capsuleBackground.layer.cornerRadius = bounds.height / 2
+        updateTransforms()
     }
 
     func configure(label text: String, isSelected: Bool) {
@@ -83,44 +90,65 @@ final class SeasonPillView: UIControl {
         applyStyle()
     }
 
-    /// Selection is independent of focus (spike: selected = white-0.2 fill +
-    /// border; focused = white fill, black text). The host updates selection
-    /// when the user picks a season / scrolls across a season boundary.
     func setSelected(_ selected: Bool) {
         guard isSelectedSeason != selected else { return }
         isSelectedSeason = selected
         applyStyle()
     }
 
-    /// Driven by the host's focus engine once wired.
     func setFocused(_ focused: Bool) {
+        let rowPills = superview?.subviews.compactMap { $0 as? SeasonPillView } ?? [self]
+        if focused {
+            for pill in rowPills where pill !== self {
+                pill.isFocusedPill = false
+                pill.updateTransforms()
+            }
+        }
         isFocusedPill = focused
-        applyStyle()
-        transform = focused ? CGAffineTransform(scaleX: 1.05, y: 1.05) : .identity
+        updateTransforms()
+        let rowHasFocus = rowPills.contains { $0.isFocusedPill }
+        for pill in rowPills {
+            pill.applyStyle(anotherPillFocused: rowHasFocus && !pill.isFocusedPill)
+        }
+    }
+
+    private func updateFont() {
+        let descriptor = UIFont.preferredFont(forTextStyle: .body).fontDescriptor.addingAttributes([
+            .traits: [UIFontDescriptor.TraitKey.weight: UIFont.Weight.semibold],
+        ])
+        label.font = UIFont(descriptor: descriptor, size: 0)
+    }
+
+    private func updateTransforms() {
+        let widthScale = isFocusedPill && bounds.width > 0 ? (bounds.width + 8) / bounds.width : 1
+        let heightScale = isFocusedPill && bounds.height > 0 ? (bounds.height + 8) / bounds.height : 1
+        capsuleBackground.transform = CGAffineTransform(scaleX: widthScale, y: heightScale)
+        label.transform = CGAffineTransform(scaleX: widthScale, y: widthScale)
     }
 
     private func applyStyle() {
-        // Matches the ATV+ reference: the active season is a bright frosted
-        // capsule even when focus is currently on an episode. Focus can scale
-        // that same capsule, but selection owns the visible chip.
-        label.font = .systemFont(ofSize: 31, weight: (isFocusedPill || isSelectedSeason) ? .semibold : .medium)
+        let anotherPillFocused = superview?.subviews.contains {
+            guard let pill = $0 as? SeasonPillView else { return false }
+            return pill !== self && pill.isFocusedPill
+        } ?? false
+        applyStyle(anotherPillFocused: anotherPillFocused)
+    }
 
+    private func applyStyle(anotherPillFocused: Bool) {
         let fill: UIColor
         let textColor: UIColor
         if isFocusedPill {
             fill = UIColor.white.withAlphaComponent(0.88)
             textColor = .black
-        } else if isSelectedSeason {
-            // Selected but unfocused: translucent grey, white text.
+        } else if isSelectedSeason && !anotherPillFocused {
             fill = UIColor.white.withAlphaComponent(0.35)
-            textColor = .white
+            textColor = .label
         } else {
             fill = .clear
-            textColor = UIColor.white.withAlphaComponent(0.72)
+            textColor = .secondaryLabel
         }
-        backgroundColor = fill
+        capsuleBackground.backgroundColor = fill
         label.textColor = textColor
-        layer.borderWidth = 0
     }
 
     /// The pill's season label.
