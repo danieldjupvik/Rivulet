@@ -70,7 +70,7 @@ struct CastArtworkTests {
     @Test func preparesCircularArtworkOffMainAndReusesRenderedImage() async throws {
         let url = try #require(URL(string: "https://example.invalid/\(UUID().uuidString)"))
         let source = sourceImage()
-        try #require(CastArtwork.cached(for: url, side: 64, scale: 2) == nil)
+        try #require(CastArtwork.cached(for: url, side: 64, scale: 2, source: source) == nil)
         let image = try #require(await CastArtwork.image(for: url, side: 64, scale: 2) { _ in
             Self.expectBackgroundThread()
             return source
@@ -84,13 +84,28 @@ struct CastArtworkTests {
         #expect(alpha(image, x: 64, y: 4) == 255)
         #expect(alpha(image, x: 4, y: 64) == 255)
         let cached = await CastArtwork.image(for: url, side: 64, scale: 2) { _ in
-            Issue.record("A rendered-cache hit must not load or redraw the source")
-            return nil
+            return source
         }
         #expect(cached === image)
-        #expect(CastArtwork.cached(for: url, side: 64, scale: 2) === image)
-        #expect(CastArtwork.cached(for: url, side: 64, scale: 1) == nil)
-        #expect(CastArtwork.cached(for: url, side: 96, scale: 2) == nil)
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 2, source: source) === image)
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 1, source: source) == nil)
+        #expect(CastArtwork.cached(for: url, side: 96, scale: 2, source: source) == nil)
+    }
+
+    @Test func refreshedOrClearedSourceCannotReuseTheOldCircle() async throws {
+        let url = try #require(URL(string: "https://example.invalid/\(UUID().uuidString)"))
+        let firstSource = sourceImage()
+        let nextSource = sourceImage(color: .blue)
+        let first = try #require(await CastArtwork.image(for: url, side: 64, scale: 1) { _ in firstSource })
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 1, source: nil) == nil)
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 1, source: nextSource) == nil)
+        let cleared = await CastArtwork.image(for: url, side: 64, scale: 1) { _ in nil }
+        #expect(cleared == nil)
+        let refreshed = try #require(await CastArtwork.image(for: url, side: 64, scale: 1) { _ in nextSource })
+        #expect(refreshed !== first)
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 1, source: firstSource) == nil)
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 1, source: nextSource) === refreshed)
+        #expect(first.pngData() != refreshed.pngData())
     }
 
     @Test func cancellationAfterLoadingDoesNotPublishArtwork() async throws {
@@ -103,14 +118,14 @@ struct CastArtworkTests {
             }
         }
         #expect(await task.value == nil)
-        #expect(CastArtwork.cached(for: url, side: 64, scale: 1) == nil)
+        #expect(CastArtwork.cached(for: url, side: 64, scale: 1, source: source) == nil)
         let retried = await CastArtwork.image(for: url, side: 64, scale: 1) { _ in source }
         #expect(retried != nil)
     }
 
-    private func sourceImage() -> UIImage {
+    private func sourceImage(color: UIColor = .red) -> UIImage {
         UIGraphicsImageRenderer(size: CGSize(width: 200, height: 100)).image { context in
-            UIColor.red.setFill()
+            color.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
         }
     }

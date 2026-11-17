@@ -95,13 +95,16 @@ final class CastCell: UIView {
         imageLoadTask = nil
         let side = Self.circleSize
         let scale = traitCollection.displayScale
-        let cached = imageURL.flatMap { CastArtwork.cached(for: $0, side: side, scale: scale) }
+        let cached = imageURL.flatMap {
+            CastArtwork.cached(for: $0, side: side, scale: scale,
+                               source: ImageCacheManager.shared.cachedImage(for: $0))
+        }
         photoView.image = cached ?? Self.placeholder
-        guard let imageURL, cached == nil else { return }
+        guard let imageURL else { return }
         imageLoadTask = Task { [weak self] in
             let image = await CastArtwork.image(for: imageURL, side: side, scale: scale)
             guard !Task.isCancelled, let self, self.imageToken == token, let image else { return }
-            self.photoView.image = image
+            if self.photoView.image !== image { self.photoView.image = image }
         }
     }
 
@@ -151,22 +154,34 @@ final class CastCell: UIView {
 }
 
 nonisolated enum CastArtwork {
-    private static let cache: NSCache<NSString, UIImage> = {
-        let cache = NSCache<NSString, UIImage>()
+    private final class Entry {
+        weak var source: UIImage?
+        let image: UIImage
+
+        init(source: UIImage, image: UIImage) {
+            self.source = source
+            self.image = image
+        }
+    }
+
+    private static let cache: NSCache<NSString, Entry> = {
+        let cache = NSCache<NSString, Entry>()
         cache.totalCostLimit = 32 << 20
         return cache
     }()
 
-    static func cached(for url: URL, side: CGFloat, scale: CGFloat) -> UIImage? {
-        cache.object(forKey: key(for: url, side: side, scale: scale))
+    static func cached(for url: URL, side: CGFloat, scale: CGFloat, source: UIImage?) -> UIImage? {
+        guard let source, let entry = cache.object(forKey: key(for: url, side: side, scale: scale)),
+              entry.source === source else { return nil }
+        return entry.image
     }
 
     @concurrent
     static func image(for url: URL, side: CGFloat, scale: CGFloat,
                       load: @Sendable (URL) async -> UIImage? = { await ImageCacheManager.shared.image(for: $0) }) async -> UIImage? {
         guard !Task.isCancelled else { return nil }
-        if let hit = cached(for: url, side: side, scale: scale) { return hit }
         guard let source = await load(url), !Task.isCancelled else { return nil }
+        if let hit = cached(for: url, side: side, scale: scale, source: source) { return hit }
         let format = UIGraphicsImageRendererFormat.layeredArtwork(scale: scale)
         format.opaque = false
         let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
@@ -178,7 +193,7 @@ nonisolated enum CastArtwork {
         }
         guard !Task.isCancelled else { return nil }
         let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
-        cache.setObject(image, forKey: key(for: url, side: side, scale: scale), cost: cost)
+        cache.setObject(Entry(source: source, image: image), forKey: key(for: url, side: side, scale: scale), cost: cost)
         return image
     }
 
