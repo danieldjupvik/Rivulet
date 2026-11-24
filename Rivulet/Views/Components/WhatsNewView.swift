@@ -155,6 +155,37 @@ struct WhatsNewView: View {
     // MARK: - Changelog Data
 
     static let changelogs: [(version: String, features: [String])] = [
+        ("1.3.1 (132)", [
+            "Live TV can start a show from the beginning when Plex is recording it",
+            "Swipe to scrub follows your finger. @268htvgzs6-art",
+            "Up or Down from the Skip button brings up the controls in one press. @268htvgzs6-art",
+            "Surround music plays as multichannel on a receiver instead of stereo",
+            "Updated AetherEngine to 7.71.0",
+            "## Fixes",
+            "Libraries you hide from Home stay out of the Home hero",
+            "Sideloaded copies on a free Apple ID no longer crash. @stackempty",
+            "Fixed a black screen on server conversions with Match Dynamic Range on",
+        ]),
+        ("1.3.1 (131)", [
+            "Plex titles play the original file again instead of a server conversion",
+            "With the autoplay countdown off, episodes end like movies, with no Up Next",
+        ]),
+        ("1.3.1 (130)", [
+            "Added a Titles Under Posters option",
+            "Added Stereo downmixing option",
+            "Added loudness leveling for music",
+            "Added a Tip Jar in About after multiple requests",
+            "Improved Profile Picker has instant and time options",
+            "Improved unwatched counts design",
+            "Updated AetherEngine to 7.69.0",
+            "## Fixes",
+            "Smoother scrolling on Home, libraries and detail pages. @danieldjupvik",
+            "When a file won't play, Rivulet switches to a server stream or shows a popup saying why",
+            "Plex servers on your home network play when your internet is down",
+            "Jellyfin and Emby show a score on detail pages and their cast in Insights. @DennisR-git",
+            "Dolby Vision stays on when your preferred audio track isn't the first one. @andreiborisov",
+            "Fixed freezes on large Live TV lineups and on titles with many audio tracks",
+        ]),
         ("1.3.1 (129)", [
             "New: Watch Together. Start or join a room and watch in sync with friends",
             "Subtitles follow your Subtitles setting, not a track Plex has selected",

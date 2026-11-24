@@ -115,6 +115,7 @@ final class EmbySeamTests: XCTestCase {
                       TitleMatch(kind: .movie, externalIDs: ["tmdb": "14160"], plexGUID: nil)]
         let owned = try await provider().ownedItems(matching: titles, limit: 10)
         XCTAssertEqual(owned.map(\.ref.itemID), ["200", "100"], "title order, case-insensitive provider ids")
+        XCTAssertEqual(owned.map(\.libraryID), ["5", "3"], "each names the library it was found in")
         let asked = server.requests.filter { $0.url?.path == items }
         XCTAssertEqual(asked.count, 2, "no request for the music library")
         let q = query(asked[0])
@@ -170,6 +171,7 @@ final class EmbySeamTests: XCTestCase {
     func test_library_isPinnedToHome() {
         let view = decode(#"{"Id":"3","Name":"Movies","Type":"CollectionFolder","CollectionType":"movies"}"#)
         XCTAssertEqual(EmbyMediaMapper.library(view, providerID: "emby:srv")?.isPinnedToHome, true)
+        XCTAssertEqual(EmbyMediaMapper.library(view, providerID: "emby:srv", homeExcludes: ["3"])?.isPinnedToHome, false)
     }
 
     func test_item_carriesGenresAndExternalIDsWhateverTheirCase() {

@@ -57,12 +57,16 @@ nonisolated struct PlexStream: Codable, Identifiable, Sendable {
     let profile: String?
     let refFrames: Int?
     let scanType: String?
+    /// "40:33" on an anamorphic stream; absent when the pixels are square.
+    var pixelAspectRatio: String?
 
     // Audio-specific
     let audioChannelLayout: String?
     let channels: Int?
     let bitrate: Int?
     let samplingRate: Int?
+    /// ReplayGain to -18 LUFS. PMS 1.43 sends it as a string ("-10.86").
+    var gain: PlexNumber?
 
     // Subtitle-specific
     let format: String?
@@ -96,8 +100,8 @@ nonisolated struct PlexStream: Codable, Identifiable, Sendable {
         case DOVILevel, DOVIPresent, DOVIProfile
         case DOVIRPUPresent, DOVIVersion
         case HDR10PlusPresent
-        case frameRate, height, width, level, profile, refFrames, scanType
-        case audioChannelLayout, channels, bitrate, samplingRate
+        case frameRate, height, width, level, profile, refFrames, scanType, pixelAspectRatio
+        case audioChannelLayout, channels, bitrate, samplingRate, gain
         case format, key, extendedDisplayTitle, hearingImpaired
     }
 
@@ -145,6 +149,22 @@ nonisolated struct PlexStream: Codable, Identifiable, Sendable {
 }
 
 /// `/library/metadata/<key>/subtitles` answer: `MediaContainer.Stream[]`.
+/// A number PMS may send as a string or a number. Anything else is nil, so one odd
+/// attribute cannot fail the whole metadata read.
+nonisolated struct PlexNumber: Codable, Sendable {
+    let value: Double?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        value = (try? c.decode(Double.self)) ?? (try? c.decode(String.self)).flatMap(Double.init)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(value)
+    }
+}
+
 nonisolated struct PlexStreamListWrapper: Codable, Sendable {
     let MediaContainer: Inner
     nonisolated struct Inner: Codable, Sendable {

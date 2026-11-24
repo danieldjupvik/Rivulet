@@ -13,14 +13,25 @@
 import Foundation
 
 /// One What's On row.
-struct LiveShelf: Identifiable {
+nonisolated struct LiveShelf: Identifiable, Sendable {
     let id: String
     let title: String
     let items: [LiveCardItem]
+
+    /// Rows of stand-in cards until the first rows are built, so the real ones land in place.
+    /// The title is a space so a header keeps its height.
+    static let placeholders: [LiveShelf] = (0..<3).map { row in
+        LiveShelf(id: "placeholder|\(row)", title: " ", items: (0..<8).map { index in
+            LiveCardItem(id: "placeholder|\(row)|\(index)", kind: .channel,
+                         channel: UnifiedChannel(id: "placeholder", sourceType: .genericM3U, sourceId: "",
+                                                 name: "Channel name"),
+                         program: nil, recording: nil)
+        })
+    }
 }
 
 /// One card's content.
-struct LiveCardItem: Hashable, Identifiable {
+nonisolated struct LiveCardItem: Hashable, Identifiable, Sendable {
     enum Kind: Hashable {
         /// A channel and what is on it now.
         case channel
@@ -37,6 +48,9 @@ struct LiveCardItem: Hashable, Identifiable {
     let recording: LiveTVScheduledRecording?
     /// The programme is set to record (see `markingRecordings`).
     var setToRecord = false
+
+    /// A stand-in from `LiveShelf.placeholders`: drawn blank, never focused or played.
+    var isPlaceholder: Bool { id.hasPrefix("placeholder|") }
 
     static func channel(_ channel: UnifiedChannel, program: UnifiedProgram?, section: String) -> LiveCardItem {
         LiveCardItem(id: "\(section)|\(channel.id)", kind: .channel, channel: channel,
@@ -67,7 +81,7 @@ struct LiveCardItem: Hashable, Identifiable {
 extension Array where Element == LiveCardItem {
     /// Each card's `setToRecord`, from the schedule. Recording cards already
     /// say so themselves.
-    func markingRecordings(_ recordings: [LiveTVScheduledRecording]) -> [LiveCardItem] {
+    nonisolated func markingRecordings(_ recordings: [LiveTVScheduledRecording]) -> [LiveCardItem] {
         map { item in
             guard item.kind != .recording, let program = item.program else { return item }
             var marked = item
@@ -78,7 +92,7 @@ extension Array where Element == LiveCardItem {
 
     /// First of each id. A diffable snapshot traps on a repeated identifier,
     /// and a merged lineup can list a channel twice.
-    func uniquedById() -> [LiveCardItem] {
+    nonisolated func uniquedById() -> [LiveCardItem] {
         var seen = Set<String>()
         return filter { seen.insert($0.id).inserted }
     }
@@ -88,17 +102,24 @@ extension LiveTVDataStore {
     /// The What's On rows for a source (nil: every source). Rows may be empty.
     /// `favoritesOnly`: the Favorites row alone, for Home, without the rows it does not show.
     func whatsOnShelves(sourceIdFilter: String?, now: Date = Date(), favoritesOnly: Bool = false) -> [LiveShelf] {
-        LiveShelves.build(LiveShelves.Input(
+        LiveShelves.build(shelvesInput, sourceIdFilter: sourceIdFilter, now: now, favoritesOnly: favoritesOnly)
+    }
+
+    /// The same rows, built off the main thread: a large guide takes seconds to sort (RIVULET-I).
+    func whatsOnShelvesInBackground(sourceIdFilter: String?, now: Date = Date()) async -> [LiveShelf] {
+        await LiveShelves.buildInBackground(shelvesInput, sourceIdFilter: sourceIdFilter, now: now)
+    }
+
+    private var shelvesInput: LiveShelves.Input {
+        LiveShelves.Input(
             channels: channels, epg: epg, recentChannelIds: recentChannelIds, favoriteIds: favoriteIds,
             unfavoritedIds: unfavoritedIds, eventSlotIds: eventSlotIds, viewings: viewings,
-            suggestionsEnabled: suggestionsEnabled,
             scheduledRecordings: scheduledRecordings,
-            sourceNames: Dictionary(sources.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first })),
-            sourceIdFilter: sourceIdFilter, now: now, favoritesOnly: favoritesOnly)
+            sourceNames: Dictionary(sources.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first }))
     }
 }
 
-enum LiveShelves {
+nonisolated enum LiveShelves {
     /// The store state the rows are built from.
     struct Input {
         var channels: [UnifiedChannel]
@@ -112,6 +133,10 @@ enum LiveShelves {
         var scheduledRecordings: [LiveTVScheduledRecording] = []
         /// Source display names by source id, for the per-source rows.
         var sourceNames: [String: String] = [:]
+    }
+
+    @concurrent static func buildInBackground(_ input: Input, sourceIdFilter: String?, now: Date) async -> [LiveShelf] {
+        build(input, sourceIdFilter: sourceIdFilter, now: now)
     }
 
     static func build(_ input: Input, sourceIdFilter: String?, now: Date, favoritesOnly: Bool = false) -> [LiveShelf] {
@@ -246,7 +271,7 @@ enum LiveShelves {
         if genres.count > 1 {
             for genre in genres {
                 let id = "genre|\(genre.rawValue)"
-                let list = Array((byGenre[genre] ?? []).prefix(60))
+                let list = byGenre[genre] ?? []
                 shelves.append(LiveShelf(id: id, title: genre.title, items: onNow(list, section: id)))
             }
         }
@@ -258,12 +283,13 @@ enum LiveShelves {
         let sourceTitles = titles.count > 1 ? titles : []
         for title in sourceTitles {
             let id = "source|\(title)"
-            let list = Array((bySource[title] ?? []).prefix(60))
+            let list = bySource[title] ?? []
             shelves.append(LiveShelf(id: id, title: title, items: onNow(list, section: id)))
         }
 
         // A shelf per channel group, as the Guide's tabs, except a group that
         // holds every channel. A source row wins a name it shares with a group.
+        // Rows hold their whole group: Add More reads these rows, and a capped row hid channels (#654).
         let groups = Dictionary(grouping: channels) {
             $0.groupTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         }
@@ -273,7 +299,7 @@ enum LiveShelves {
         }
         for title in groupTitles.prefix(16) {
             let id = "group|\(title)"
-            let list = Array((groups[title] ?? []).prefix(60))
+            let list = groups[title] ?? []
             shelves.append(LiveShelf(id: id, title: title, items: onNow(list, section: id)))
         }
 
