@@ -85,5 +85,5 @@ Build and test the combined result before proposing a merge. Leave the parked ex
 
 ## Episode artwork decision (2026-11-24)
 
-- Use upstream’s complete episode card while Daniel evaluates its artwork treatment and waits for maintainer feedback. Revisit the fork version only if Daniel requests it.
+- Use upstream’s complete episode card. Upstream `6453b86d` puts the dark fade layer above the tint and synchronizes the description with artwork focus, and `b4ac4af8` adds native layered-image focus with the fade and badges in the overlay. On Apple TV, verify the highlight, badge legibility on light artwork, clearance during description focus, and whether a bright strip appears after preview expansion. Revisit the fork version only if Daniel requests it.
 - The previous fork card is in pre-sync fork main `8a164676` and on `feat/episode-poster-effects`. The relevant changes are `536c3af8` for native image focus and the specular highlight, `de32b5ae` for the composited fade, and `61fe1f3a` for stale fade cancellation and artwork backing. The composited fade addressed the bright strip seen when artwork lost focus after preview expansion.
