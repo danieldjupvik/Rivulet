@@ -28,6 +28,14 @@ final class HubHeaderView: UICollectionReusableView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The title and badge, which lift over a focused tile (`ShelfRowCell.liftingHeader`).
+    var textView: UIView { stack }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        stack.transform = .identity
+    }
+
     private func setUp() {
         backgroundColor = .clear
 
@@ -68,11 +76,12 @@ final class HubHeaderView: UICollectionReusableView {
                    loadedCount: Int? = nil,
                    totalCount: Int? = nil,
                    pageSize: Int = 24,
-                   sourceBadge: String? = nil) {
+                   sourceBadge: String? = nil,
+                   color: UIColor? = nil) {
         switch style {
         case .swiftUIInfiniteRow:
             titleLabel.font = MediaRowMetrics.headerFont
-            titleLabel.textColor = MediaRowMetrics.headerColor
+            titleLabel.textColor = color ?? MediaRowMetrics.headerColor
         case .swiftUIWatchlist:
             titleLabel.font = .systemFont(ofSize: MediaRowMetrics.sectionTitleSize, weight: .bold)
             titleLabel.textColor = .white

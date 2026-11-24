@@ -1580,7 +1580,7 @@ final class PlexHomeViewController: UIViewController {
             let map = mediaItemMapper()
             if case .library(let key, _) = mode {
                 let sort = gridSort.apiParameter
-                let filters = PlexProvider.filterQuery(libraryFilter)
+                let filters = PlexProvider.filterQuery(libraryFilter, showLibrary: currentLibraryType == "show")
                 fetchPage = { start in
                     let result = try await network.getLibraryItemsWithTotal(
                         serverURL: serverURL,
@@ -2843,6 +2843,8 @@ final class PlexHomeViewController: UIViewController {
         // guess collapsed the field on the way down and never restored it.
         if case .search = mode {
             setContentScrollView(collectionView, for: .top)
+            // The grid keyboard sits beside this page; a shelf scrolled past its edge must not draw behind it.
+            view.clipsToBounds = true
         }
         // No hero: 48pt of room above the first row.
         updateContentTopInset()
@@ -2999,7 +3001,8 @@ final class PlexHomeViewController: UIViewController {
         let columns = isPlaylists ? MediaRowMetrics.playlistFullCount : MediaRowMetrics.posterFullCount
         // Posters sit on Apple's row pitch; the other tiles keep their padded rows with a gap.
         let isPosterGrid = !isPlaylists && !data.isMusic
-        let groupHeight = isPosterGrid ? MediaRowMetrics.posterGridPitch
+        let groupHeight = isPosterGrid
+            ? MediaRowMetrics.posterGridPitch + MediaRowMetrics.posterCaptionSpace
             : tile.frame.height + MediaRowMetrics.focusGrowthPadding
 
         let itemSize = NSCollectionLayoutSize(
@@ -3086,18 +3089,17 @@ final class PlexHomeViewController: UIViewController {
         // is measured from the panel edge). Insets stay zero — the overlay
         // cell already owns its own vertical composition.
         section.contentInsetsReference = .none
-        // Small bottom gap so the first row (Continue Watching) sits a bit
-        // lower, separated from the hero.
+        // The first row starts under the hero's bottom edge, where Apple's does.
         section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: Self.heroShelfGap, trailing: 0)
         return section
     }
 
-    /// The hero section: the screen less 200 pt, then a 40 pt gap to the first shelf.
+    /// The hero section: the screen less 200 pt. The first shelf starts 4 pt inside its bottom edge
+    /// (negative gap), which puts the first row title at Apple's y 887.5 on a 1080 pt screen.
     private static var heroHeight: CGFloat { max(400, UIScreen.main.bounds.height - 200) }
-    private static let heroShelfGap: CGFloat = 40
-    /// The line the backdrop's bottom catches up with: 40 pt above the hero's
-    /// bottom, leaving Apple's ~100 pt between the art and the first row title.
-    private static var heroBackdropFloor: CGFloat { heroHeight - 40 }
+    private static let heroShelfGap: CGFloat = -4
+    /// The line the backdrop's bottom catches up with, 80 pt above the first shelf's top.
+    private static var heroBackdropFloor: CGFloat { heroHeight + heroShelfGap - 80 }
 
     /// Nothing covers Home, so a hero page change would be seen. Checks the
     /// window's root: the carousel and player present from the shell, not here.
@@ -3115,6 +3117,7 @@ final class PlexHomeViewController: UIViewController {
             : section.isEpisodeRow ? EpisodeCollectionCell.searchTile
             : (section.isMusic ? MediaRowMetrics.music : MediaRowMetrics.poster))
         let rowHeight = tile.frame.height + MediaRowMetrics.focusGrowthPadding  // room for focus growth
+            + (override == nil ? Self.shelfCaptionHeight(section) : 0)
 
         let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
                                               heightDimension: .absolute(rowHeight))
@@ -3128,9 +3131,11 @@ final class PlexHomeViewController: UIViewController {
         layoutSection.contentInsetsReference = .none
         // Titled rows: header baseline to artwork and artwork to next artwork follow Apple's
         // measured spacing (`shelfInsets`). The row's flow layout centres the tiles in their padding.
-        let insets = section.title != nil
+        var insets = section.title != nil
             ? MediaRowMetrics.shelfInsets(for: tile)
             : (top: MediaRowMetrics.rowTopInset, bottom: MediaRowMetrics.rowBottomInset)
+        // An episode card's frame holds its 20 pt focus reserve above the artwork, which its tile does not count.
+        if section.isEpisodeRow, section.title != nil { insets.top -= MediaRowMetrics.focusGrowth / 2 }
         layoutSection.contentInsets = NSDirectionalEdgeInsets(
             top: insets.top,
             leading: 0,
@@ -3320,12 +3325,16 @@ final class PlexHomeViewController: UIViewController {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: PosterCell.reuseID, for: indexPath) as! PosterCell
             if indexPath.item < section.items.count {
                 let item = section.items[indexPath.item]
+                // Same gate as the grid's row height in makeGridSectionLayout (poster grids only).
+                let captioned = MediaRowMetrics.showsPosterTitles && !section.isMusic
                 if item.isGridPlaceholder {
                     cell.configurePlaceholder()
+                    cell.setCaption(captioned ? "" : nil)
                 } else {
                     Perf.interval(.cellPrepare, key: perfKey) {
                         cell.configure(item: item)
                     }
+                    cell.setCaption(captioned ? PosterCaption.text(for: item) : nil)
                 }
             }
             return cell
@@ -3336,6 +3345,7 @@ final class PlexHomeViewController: UIViewController {
                 Perf.interval(.cellPrepare, key: perfKey) {
                     cell.configure(item: item)
                 }
+                cell.setCaption(MediaRowMetrics.showsPosterTitles ? item.title : nil)
             }
             return cell
 
@@ -3768,6 +3778,10 @@ final class PlexHomeViewController: UIViewController {
             .debounce(for: .milliseconds(100), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
+                if MediaRowMetrics.showsPosterTitles != self.lastShowsPosterTitles {
+                    self.lastShowsPosterTitles = MediaRowMetrics.showsPosterTitles
+                    self.reloadForPosterTitles()
+                }
                 self.backdropView.isHidden = !self.showHomeHero
                 if !self.showHomeHero {
                     self.setHeroBackdrop(url: nil)
@@ -3966,6 +3980,13 @@ final class PlexHomeViewController: UIViewController {
         }
     }
 
+    private func shelfHeaderText(sectionID: HomeSectionID) -> UIView? {
+        guard let index = sectionsSnapshot.firstIndex(where: { $0.id == sectionID }) else { return nil }
+        let header = collectionView.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader,
+                                                      at: IndexPath(item: 0, section: index))
+        return (header as? HubHeaderView)?.textView
+    }
+
     private func shelfSection(id: HomeSectionID) -> HomeSectionData? {
         sectionsSnapshot.first(where: { $0.id == id })
     }
@@ -4025,6 +4046,7 @@ final class PlexHomeViewController: UIViewController {
         cell.onOffsetChanged = { [weak self] offset in
             self?.shelfOffsets[sectionID] = offset
         }
+        cell.liftingHeader = { [weak self] in self?.shelfHeaderText(sectionID: sectionID) }
         cell.configure(
             kind: section.kind == .continueWatching ? .continueWatching
                 : section.kind == .liveChannels ? .homeLive
@@ -4033,13 +4055,39 @@ final class PlexHomeViewController: UIViewController {
             realCount: shelfRealCount(section),
             hasSkeleton: paginationStates[section.id]?.isLoadingMore == true,
             contentToken: shelfContentToken(section),
-            initialOffset: shelfOffsets[sectionID] ?? 0
+            initialOffset: shelfOffsets[sectionID] ?? 0,
+            captionHeight: Self.shelfCaptionHeight(section)
         )
         if section.kind == .liveChannels, let inner = cell.rowCollectionView {
             for case let card as LiveCardCell in inner.visibleCells {
                 guard let path = inner.indexPath(for: card), path.item < section.liveCards.count else { continue }
                 card.configure(section.liveCards[path.item])
             }
+        }
+    }
+
+    private var lastShowsPosterTitles = MediaRowMetrics.showsPosterTitles
+
+    /// Row heights and tile captions both read the setting, so re-run the layout and every cell.
+    private func reloadForPosterTitles() {
+        guard let dataSource else { return }
+        collectionView.collectionViewLayout.invalidateLayout()
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems(snapshot.itemIdentifiers)
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
+    /// Rows of posters and Continue Watching carry a title line under each tile; music, people
+    /// and the episode cards in search (titled already) do not.
+    private static func shelfCaptionHeight(_ section: HomeSectionData) -> CGFloat {
+        guard !section.isMusic else { return 0 }
+        switch section.kind {
+        case .continueWatching, .recentlyAdded, .recommendations, .discoverList, .watchlist:
+            return MediaRowMetrics.posterCaptionSpace
+        case .searchGrid:
+            return section.isEpisodeRow ? 0 : MediaRowMetrics.posterCaptionSpace
+        default:
+            return 0
         }
     }
 
@@ -4107,6 +4155,8 @@ final class PlexHomeViewController: UIViewController {
             Perf.interval(.cellPrepare, key: perfKey) {
                 cell.configure(item: section.items[indexPath.item])
             }
+            // Always set: a reconfigured cell skips `prepareForReuse`.
+            cell.setCaption(for: Self.shelfCaptionHeight(section) > 0 ? section.items[indexPath.item] : nil)
             // The next few cards build now, so one reaching the edge arrives finished.
             let ahead = (indexPath.item + 1)..<min(indexPath.item + 5, section.items.count)
             ContinueWatchingCell.prewarm(section.items[ahead], scale: innerCV.traitCollection.displayScale)
@@ -4125,6 +4175,7 @@ final class PlexHomeViewController: UIViewController {
                     cell.setSourceBadge(Self.sourceBadge(for: item.ref,
                                                          labelsServers: ServerDataStore.shared.labelsServers))
                 }
+                cell.setCaption(Self.shelfCaptionHeight(section) > 0 ? PosterCaption.text(for: item) : nil)
             }
             return cell
         case .watchlist:
@@ -4132,6 +4183,7 @@ final class PlexHomeViewController: UIViewController {
             Perf.interval(.cellPrepare, key: perfKey) {
                 cell.configure(item: section.watchlistItems[indexPath.item])
             }
+            cell.setCaption(Self.shelfCaptionHeight(section) > 0 ? section.watchlistItems[indexPath.item].title : nil)
             return cell
         case .searchPeople:
             let cell = innerCV.dequeueReusableCell(withReuseIdentifier: CastCollectionCell.reuseID, for: indexPath) as! CastCollectionCell
@@ -4321,7 +4373,8 @@ final class PlexHomeViewController: UIViewController {
             playFocusedTile()
             return
         }
-        super.pressesBegan(presses, with: event)
+        let rest = pressesForSuper(presses)
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -4329,7 +4382,8 @@ final class PlexHomeViewController: UIViewController {
             isHandlingPlayPausePress = false
             return
         }
-        super.pressesEnded(presses, with: event)
+        let rest = pressesForSuper(presses)
+        if !rest.isEmpty { super.pressesEnded(rest, with: event) }
     }
 
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -4337,7 +4391,26 @@ final class PlexHomeViewController: UIViewController {
             isHandlingPlayPausePress = false
             return
         }
-        super.pressesCancelled(presses, with: event)
+        let rest = pressesForSuper(presses)
+        if !rest.isEmpty { super.pressesCancelled(rest, with: event) }
+    }
+
+    override func pressesChanged(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let rest = pressesForSuper(presses)
+        if !rest.isEmpty { super.pressesChanged(rest, with: event) }
+    }
+
+    /// On Home and library pages, arrows end here: nothing above them may rely on an arrow press.
+    /// Focus moves on them through the focus engine's own recognizer before any responder sees the
+    /// press, the sidebar opens through focus (the shell's edge catcher) and Menu goes through
+    /// MenuPressInterceptor, so forwarding them only walked about 25 responders (three SwiftUI
+    /// hosts) per press. Other modes forward everything (Search's container reads Up and Down).
+    private func pressesForSuper(_ presses: Set<UIPress>) -> Set<UIPress> {
+        switch mode {
+        case .home, .library: break
+        default: return presses
+        }
+        return presses.filter { ![.upArrow, .downArrow, .leftArrow, .rightArrow].contains($0.type) }
     }
 
     /// Resolve whatever currently holds focus to a playable MediaItem and play
@@ -4930,9 +5003,9 @@ final class PlexHomeViewController: UIViewController {
     /// ten, the way a Plex library's hub-backed hero falls back to its
     /// recent items.
     static func heroItems(from rows: CachedHomeRail) -> [MediaItem] {
-        Array(rows.filter { !$0.isContinueWatching }
+        Array(HomeHero.deduplicated(rows.filter { !$0.isContinueWatching }
             .flatMap(\.items)
-            .filter(isHeroCandidate)
+            .filter(isHeroCandidate))
             .prefix(10))
     }
 
@@ -4945,8 +5018,9 @@ final class PlexHomeViewController: UIViewController {
     /// The other servers' Home hero: their trending titles, one library at a
     /// time, when enough have a backdrop; their newest additions otherwise.
     static func heroItems(trending: [[MediaItem]], rows: CachedHomeRail) -> [MediaItem] {
-        let picks = Array(roundRobin(trending)
-            .filter { ($0.grandparentArtwork?.backdrop ?? $0.artwork.backdrop) != nil }
+        // One slide per title across libraries, before the cap so a twin library does not halve the slides (#649).
+        let picks = Array(HomeHero.deduplicated(roundRobin(trending)
+            .filter { ($0.grandparentArtwork?.backdrop ?? $0.artwork.backdrop) != nil })
             .prefix(10))
         return picks.count >= heroTMDBMinMatches ? picks : heroItems(from: rows)
     }
@@ -4966,7 +5040,7 @@ final class PlexHomeViewController: UIViewController {
     /// Both servers' hero slides, alternating, so neither server's picks
     /// sink under the other's.
     static func mixedHeroItems(plex: [MediaItem], otherServers: [MediaItem], cap: Int) -> [MediaItem] {
-        Array(interleave(plex, otherServers).prefix(cap))
+        Array(HomeHero.deduplicated(interleave(plex, otherServers)).prefix(cap))
     }
 
     private var homeHeroSource: HomeHeroSource {

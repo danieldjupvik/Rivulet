@@ -46,6 +46,8 @@ final class ShelfRowCell: UICollectionViewCell {
             }
         }
         var pitch: CGFloat { tileWidth + gap }
+        /// How far a focused tile grows above its resting artwork.
+        var focusRise: CGFloat { (tile?.growth.height ?? MediaRowMetrics.focusGrowth) / 2 }
         /// Inset of the first cell frame: it rests the artwork on the margin.
         var leading: CGFloat { tile?.leading ?? margin }
         /// The row's margin, where its header and its artwork rest.
@@ -67,6 +69,9 @@ final class ShelfRowCell: UICollectionViewCell {
     var onFocusItem: ((Int) -> Void)?
     /// Reports resting offsets so the owner can restore them across reuse.
     var onOffsetChanged: ((CGFloat) -> Void)?
+    /// The header text over this row when it lives outside the cell (Home's section header).
+    var liftingHeader: (() -> UIView?)?
+    private weak var liftedHeader: UIView?
 
     /// Focused tile index in this row, nil off-row or on the skeleton. Play/Pause bubbles to the
     /// owning controller with no per-tile callback, so the controller reads it from here.
@@ -97,6 +102,8 @@ final class ShelfRowCell: UICollectionViewCell {
     /// overshoot is simply added to the inner content insets so tiles, peeks
     /// and landings line up with the panel exactly like the home rows.
     private var panelOvershoot: (left: CGFloat, right: CGFloat) = (0, 0)
+    /// Extra tile height under the artwork for a title line (`PosterCaption`); 0 without one.
+    private var captionHeight: CGFloat = 0
 
     /// Optional in-cell header title (the below-fold Related row draws its
     /// "Related" header here so it self-aligns with the tiles; the home rows
@@ -198,6 +205,9 @@ final class ShelfRowCell: UICollectionViewCell {
         // land at arbitrary offsets, and didUpdateFocus drives pitch-aligned
         // offsets instead. Programmatic offsets still work when disabled.
         rowCollectionView.isScrollEnabled = false
+        // The flow layout insets from contentInset and nothing reads margins. Without this, every
+        // safe-area change during Home's vertical scroll re-derives margins and invalidates the row's layout.
+        rowCollectionView.insetsLayoutMarginsFromSafeArea = false
         // No per-row focus memory: entering a row should land on the tile in
         // the same SCREEN column you came from (the engine's geometric pick),
         // like ATV+ — not on whatever tile this row last had focused.
@@ -244,6 +254,8 @@ final class ShelfRowCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         pendingFocusIndex = nil
+        liftedHeader?.transform = .identity
+        liftedHeader = nil
         // Belongs to the row this cell WAS showing; carrying it into a
         // different row would restore focus to an unrelated tile index.
         lastFocusedItemIndex = nil
@@ -267,10 +279,13 @@ final class ShelfRowCell: UICollectionViewCell {
                    hasSkeleton: Bool,
                    contentToken: Int,
                    initialOffset: CGFloat,
-                   panelOvershoot: (left: CGFloat, right: CGFloat) = (0, 0)) {
+                   panelOvershoot: (left: CGFloat, right: CGFloat) = (0, 0),
+                   captionHeight: CGFloat = 0) {
         let kindChanged = kind != tileKind || panelOvershoot != self.panelOvershoot
+            || captionHeight != self.captionHeight
         tileKind = kind
         self.panelOvershoot = panelOvershoot
+        self.captionHeight = captionHeight
         if kindChanged {
             applyMetrics(for: kind)
         }
@@ -446,6 +461,9 @@ final class ShelfRowCell: UICollectionViewCell {
         let visible = rowCollectionView.indexPathsForVisibleItems.sorted { $0.item < $1.item }
 
         let visibleBounds = window.bounds.insetBy(dx: -80, dy: -80)
+        // One screen update puts every tile the caller un-hid on the render server; later captures
+        // read that state instead of each waiting for a screen update of its own.
+        var needsScreenUpdate = afterScreenUpdates
         return visible
             .compactMap { indexPath -> PreviewEntrySnapshot? in
                 let targetIndex: Int
@@ -459,13 +477,15 @@ final class ShelfRowCell: UICollectionViewCell {
                       let cell = rowCollectionView.cellForItem(at: indexPath),
                       cell.convert(cell.bounds, to: window).intersects(visibleBounds)
                 else { return nil }
-                return PreviewEntrySnapshot.capture(
-                    cell, itemIndex: targetIndex, in: window, afterScreenUpdates: afterScreenUpdates)
+                let snapshot = PreviewEntrySnapshot.capture(
+                    cell, itemIndex: targetIndex, in: window, afterScreenUpdates: needsScreenUpdate)
+                if snapshot != nil { needsScreenUpdate = false }
+                return snapshot
             }
     }
 
     private func applyMetrics(for kind: TileKind) {
-        flow.itemSize = CGSize(width: kind.tileWidth, height: kind.tileHeight)
+        flow.itemSize = CGSize(width: kind.tileWidth, height: kind.tileHeight + captionHeight)
         flow.minimumLineSpacing = kind.gap
         flow.minimumInteritemSpacing = kind.gap
         flow.sectionInset = UIEdgeInsets(
@@ -597,13 +617,38 @@ extension ShelfRowCell: UICollectionViewDataSource, UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView,
                         didUpdateFocusIn context: UICollectionViewFocusUpdateContext,
                         with coordinator: UIFocusAnimationCoordinator) {
-        guard let next = context.nextFocusedIndexPath else { return }
+        let next = context.nextFocusedIndexPath
+        let target = next.map { snappedOffset(toShow: $0.item) } ?? collectionView.contentOffset.x
+        updateHeaderLift(focusedItem: next?.item, offset: target, coordinator: coordinator)
+        guard let next else { return }
         lastFocusedItemIndex = next.item
         if next.item < realCount { onFocusItem?(next.item) }
-        let target = snappedOffset(toShow: next.item)
         guard abs(target - collectionView.contentOffset.x) > 0.5 else { return }
         animateOffset(to: target)
         onOffsetChanged?(target)
+    }
+
+    /// The Apple TV app lifts a row's header by the focused tile's upward growth while that tile's
+    /// grown frame overlaps the header text (VideosUI 27 0x202f39f04).
+    private func updateHeaderLift(focusedItem: Int?, offset: CGFloat, coordinator: UIFocusAnimationCoordinator) {
+        let header = liftingHeader?() ?? (headerLabel.isHidden ? nil : headerLabel)
+        if let old = liftedHeader, old !== header {
+            coordinator.addCoordinatedAnimations({ old.transform = .identity }, completion: nil)
+        }
+        liftedHeader = header
+        guard let header else { return }
+        var overlaps = false
+        if let item = focusedItem,
+           let frame = flow.layoutAttributesForItem(at: IndexPath(item: item, section: 0))?.frame {
+            // Where the tile will rest once the row has scrolled to `offset`.
+            let tile = convert(frame.offsetBy(dx: rowCollectionView.contentOffset.x - offset, dy: 0),
+                               from: rowCollectionView)
+            let text = header.convert(header.bounds, to: self)
+            overlaps = tile.minX < text.maxX && tile.maxX > text.minX
+        }
+        let transform = overlaps ? CGAffineTransform(translationX: 0, y: -tileKind.focusRise) : .identity
+        guard header.transform != transform else { return }
+        coordinator.addCoordinatedAnimations({ header.transform = transform }, completion: nil)
     }
 
     /// Keep a Left press at the window edge from escaping to the sidebar

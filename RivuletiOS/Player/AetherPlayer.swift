@@ -451,12 +451,21 @@ final class AetherPlayer: ObservableObject {
     /// Same key as the tvOS Upscale SD and 720p setting; absent = off.
     static let upscaleKey = "upscaleLowResolution"
 
-    func loadLive(url: URL, headers: [String: String]? = nil, forceEngineDemux: Bool = false) async throws {
-        lastLoad = .live(url: url, headers: headers ?? [:], forceEngineDemux: forceEngineDemux)
-        try await performLiveLoad(url: url, headers: headers ?? [:], forceEngineDemux: forceEngineDemux)
+    /// Stereo with Subwoofer (#614): a stereo fold that keeps the LFE.
+    static func audioShaping() -> AudioShaping {
+        StereoWithSubwoofer.isOn() ? AudioShaping(maxChannels: 2, lfeMixDB: StereoWithSubwoofer.lfeMixDB) : AudioShaping()
     }
 
-    private func performLiveLoad(url: URL, headers: [String: String], forceEngineDemux: Bool) async throws {
+    /// `joinsAtRecordingStart` plays a Plex recording in progress from its first segment; a retry joins live.
+    func loadLive(url: URL, headers: [String: String]? = nil, forceEngineDemux: Bool = false,
+                  joinsAtRecordingStart: Bool = false) async throws {
+        lastLoad = .live(url: url, headers: headers ?? [:], forceEngineDemux: forceEngineDemux)
+        try await performLiveLoad(url: url, headers: headers ?? [:], forceEngineDemux: forceEngineDemux,
+                                  joinsAtRecordingStart: joinsAtRecordingStart)
+    }
+
+    private func performLiveLoad(url: URL, headers: [String: String], forceEngineDemux: Bool,
+                                 joinsAtRecordingStart: Bool = false) async throws {
         beginLoad()
         let isNativeHLS = Self.isHLSURL(url) && !forceEngineDemux
         // Forced onto the engine demuxer AND a playlist: the Plex direct-play grant.
@@ -490,9 +499,15 @@ final class AetherPlayer: ObservableObject {
             // depth on short-GOP channels: the playlist caps at 900 segments.
             options.liveJoinProfile = .fastZap
             options.audioDelaySeconds = AudioSync.seconds()
+            options.audioShaping = Self.audioShaping()
             if joinsWirelessAudio {
                 options.liveJoinStartsImmediately = false
                 options.autoplay = false
+            }
+            if joinsAtRecordingStart {
+                // #444: play from the recording's first segment; the window reaches back to it.
+                options.liveJoinsAtPlaylistStart = true
+                options.dvrWindowSeconds = 4 * 3600
             }
             return options
         }
@@ -532,6 +547,7 @@ final class AetherPlayer: ObservableObject {
         headers: [String: String]? = nil,
         startTime: TimeInterval? = nil,
         externalSubtitles: [SidecarSubtitle] = [],
+        audioStreamIndex: Int? = nil,
         keepingTransport: Bool = false,
         stackedParts: StackedParts<StackedPartFile>? = nil
     ) async throws {
@@ -542,7 +558,7 @@ final class AetherPlayer: ObservableObject {
             lastLoad = .vod(url: url, headers: headers ?? [:], subtitles: externalSubtitles)
             try await performVODLoad(
                 url: url, headers: headers ?? [:], startTime: startTime, subtitles: externalSubtitles,
-                keepingTransport: keepingTransport
+                keepingTransport: keepingTransport, audioStreamIndex: audioStreamIndex
             )
             return
         }
@@ -551,9 +567,10 @@ final class AetherPlayer: ObservableObject {
         partIndex = index
         let file = stackedParts.files[index]
         lastLoad = .vod(url: file.url, headers: headers ?? [:], subtitles: file.sidecars)
+        // Stream indexes match across the files of one release.
         try await performVODLoad(
             url: file.url, headers: headers ?? [:], startTime: startTime == nil ? nil : offset,
-            subtitles: file.sidecars, keepingTransport: keepingTransport
+            subtitles: file.sidecars, keepingTransport: keepingTransport, audioStreamIndex: audioStreamIndex
         )
     }
 
@@ -579,8 +596,9 @@ final class AetherPlayer: ObservableObject {
         let file = stack.files[index]
         lastLoad = .vod(url: file.url, headers: headers, subtitles: file.sidecars)
         do {
+            // Stream indexes match across the files of one release, so the part opens on the playing audio.
             try await performVODLoad(url: file.url, headers: headers, startTime: offset > 0 ? offset : nil,
-                                     subtitles: file.sidecars, keepingTransport: true)
+                                     subtitles: file.sidecars, keepingTransport: true, audioStreamIndex: audio)
         } catch {
             return
         }
@@ -598,7 +616,8 @@ final class AetherPlayer: ObservableObject {
         headers: [String: String],
         startTime: TimeInterval?,
         subtitles: [SidecarSubtitle],
-        keepingTransport: Bool = false
+        keepingTransport: Bool = false,
+        audioStreamIndex: Int? = nil
     ) async throws {
         beginLoad(keepingTransport: keepingTransport)
         pendingSeekTarget = startTime.map { $0 + partStart }
@@ -633,13 +652,20 @@ final class AetherPlayer: ObservableObject {
         )
         options.autoplay = userIntendsToPlay
         options.audioDelaySeconds = AudioSync.seconds()
+        options.audioShaping = Self.audioShaping()
         // Read ahead as far as the engine's disk budget allows.
         options.forwardBufferSegments = .max
+        // Reopening the same title within the session plays from the segments already fetched.
+        options.retainsSessionCacheAfterStop = true
         // Engine takes it only for SDR below the screen's size and switches it off if it can't keep up.
         options.upscalesLowResolutionVideo = UserDefaults.standard.bool(forKey: Self.upscaleKey)
 
         do {
-            try await engine.load(url: url, startPosition: startTime, options: options)
+            // Opens on the host's audio pick. Switching once the engine lists its tracks rebuilds
+            // the load before its display handshake ends, and the rebuild serves Dolby Vision as
+            // its HDR10 base (#627).
+            try await engine.load(url: url, startPosition: startTime, options: options,
+                                  audioSourceStreamIndex: audioStreamIndex.flatMap { Int32(exactly: $0) })
             if userIntendsToPlay, rate != 1 { engine.setRate(rate) }
             seedVideoSize()
         } catch {

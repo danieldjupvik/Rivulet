@@ -35,7 +35,7 @@ The video player is **AetherPlayer** — an adapter around AetherEngine (FFmpeg 
 - **Language**: Swift 6
 - **UI Framework**: UIKit for the primary surfaces (see above); SwiftUI for the rest
 - **Video Player**: AetherPlayer for VOD and Live TV; AVPlayer only for the `hls` route (server transcode, primary-when-no-direct-URL or Aether fallback). See `Docs/RIVULET_PLAYER.md`.
-- **AetherEngine**: consumed as an **upstream** SwiftPM dependency (`superuser404notfound/AetherEngine`), pinned `exactVersion` (7.66.1), with one optional package trait, `DolbyVisionFelCurves` (P7 FEL curve fold), set in `project.pbxproj`; the other four stay off in every committed build. `Scripts/enthusiast-build.py --fel --height-audio` turns on `DualLayerDolbyVision` + `DolbyVisionStillReshaping` and `TrueHDObjectAudio` + `DTSXObjectAudio` for a self-built copy (#609); the app finds them through `AetherEngine.OptionalComponent` (`AetherPlayer.buildsFEL` / `buildsHeightAudio`) and only then shows the Dolby Vision FEL and Height Speakers rows. `restore-package-traits.py` fails CI if any of the four is committed. A bump must keep it: CI's `Scripts/restore-package-traits.py` puts it back after `use-profiles`. **There is no fork** — engine fixes need an upstream release or a host-side workaround; do not propose editing engine sources. Bumping it has a procedure: use the `aether-update` skill. Every bump gets a changelog line. FFmpeg + libdovi arrive **only transitively through Aether**; there is no app-level FFmpeg layer and no direct FFmpegBuild dependency. Since FFmpegBuild 2.0.0 the FFmpeg libs ship as **embedded dynamic frameworks** in `Rivulet.app/Frameworks/` — their `MinimumOSVersion` (26.0) must stay >= `TVOS_DEPLOYMENT_TARGET` (26.0), so do not raise the deployment target.
+- **AetherEngine**: consumed as an **upstream** SwiftPM dependency (`superuser404notfound/AetherEngine`), pinned `exactVersion` (7.71.0), with one optional package trait, `DolbyVisionFelCurves` (P7 FEL curve fold), set in `project.pbxproj`; the other four stay off in every committed build. `Scripts/enthusiast-build.py --fel --height-audio` turns on `DualLayerDolbyVision` + `DolbyVisionStillReshaping` and `TrueHDObjectAudio` + `DTSXObjectAudio` for a self-built copy (#609); the app finds them through `AetherEngine.OptionalComponent` (`AetherPlayer.buildsFEL` / `buildsHeightAudio`) and only then shows the Dolby Vision FEL and Height Speakers rows. `restore-package-traits.py` fails CI if any of the four is committed. A bump must keep it: CI's `Scripts/restore-package-traits.py` puts it back after `use-profiles`. **There is no fork** — engine fixes need an upstream release or a host-side workaround; do not propose editing engine sources. Bumping it has a procedure: use the `aether-update` skill. Every bump gets a changelog line. FFmpeg + libdovi arrive **only transitively through Aether**; there is no app-level FFmpeg layer and no direct FFmpegBuild dependency. Since FFmpegBuild 2.0.0 the FFmpeg libs ship as **embedded dynamic frameworks** in `Rivulet.app/Frameworks/` — their `MinimumOSVersion` (26.0) must stay >= `TVOS_DEPLOYMENT_TARGET` (26.0), so do not raise the deployment target.
 - **Design Guide**: See `Docs/DESIGN_GUIDE.md` for UI/UX patterns
 - **Repo is public**: keep commit messages short and plain; no internal detail.
 
@@ -68,6 +68,11 @@ RivuletCore/            # Shared tvOS + iOS + macOS. Client/ (PlexSession, Brows
 │                       #   Models/Photos (the agnostic item types).
 │                       #   Home/ (Home row visibility and order, playlist pins,
 │                       #   hero sources, favorites and playlist rows).
+│                       #   Launch/ (the launch splash all three apps play: LaunchSplashAnimation,
+│                       #   LaunchSplashStroke, the line that draws the R, and its arrival map
+│                       #   LaunchRiverArrivals.bin, written by tools/launch-splash; Launch.xcassets;
+│                       #   LaunchSplashGate, when iOS and Mac let it go). The tvOS and iOS launch
+│                       #   screens (LaunchScreen.storyboard) show the icon's sky, which it opens on.
 │                       #   NO #if os(...), lint-enforced.
 RivuletiOS/             # iOS/iPadOS app (SwiftUI). Shell/ (tabs, Account sheet,
 │                       #   navigation contract), Plex/ (Home/Library/Detail
@@ -76,7 +81,8 @@ RivuletiOS/             # iOS/iPadOS app (SwiftUI). Shell/ (tabs, Account sheet,
 │                       #   AetherPlayer, IOSPlaybackController: PiP, Now Playing),
 │                       #   Downloads/ (background transfer, download center, list;
 │                       #   records + offline progress live in RivuletCore/Downloads),
-│                       #   Photos/ (photo library grid and viewer over PhotoListingModel).
+│                       #   Photos/ (photo library grid and viewer over PhotoListingModel),
+│                       #   CarPlay/ (the CarPlay video scene: templates over BrowseStore).
 RivuletMac/             # Native macOS app (SwiftUI + AppKit). See "Mac app" and
 │                       #   RivuletMac/README-MAC.md (navigation contract, file map).
 Rivulet/                # The tvOS app — everything below.
@@ -154,6 +160,8 @@ Standing exceptions:
 - The watchlist is Plex only: Jellyfin and Emby have none (`supportsWatchlist`).
 - Delete is offered on an episode in a show or season page's episode list, which animates it out. A detail page never deletes its own title (an episode's page included): it would be left showing what it deleted.
 - The pause screen is tvOS only: iOS and the Mac app keep their controls up while paused, as the system player does.
+- CarPlay and Apple HomeView are iPhone only, and video only: Apple allows one CarPlay category per app, so music is not offered there.
+- Start from Beginning on Live TV is Plex only: Jellyfin, Emby and IPTV have no recorder session to join.
 
 ## Platform Boundary (tvOS / iOS)
 
@@ -416,9 +424,16 @@ focusless AND single-transport, or when a needed hand-off is press-only.
   `HeroButtonRowView` takes the Right the engine declines from Next and the
   Left from Play in `pressesBegan`, plus gated swipes on the same predicates;
   focus stays put. Not an invisible focus stop past the row: paging rebuilt the
-  row under it, focus stranded on the stop and every arrow key went dead. The
-  gesture that lands on Play or Next never pages, and one swipe is one page: a
-  gesture counter (`MenuPressInterceptor.remoteGestures`) holds the rest of it.
+  row under it, focus stranded on the stop and every arrow key went dead. A
+  click or short swipe that lands on Play or Next never pages, and one swipe is
+  one page: a gesture counter (`MenuPressInterceptor.remoteGestures`) holds the
+  rest of it. The exception is the TV app's long swipe: a swipe that walked along
+  the row onto Play and keeps going asks the engine for another Left, and that
+  request pages back (`passesPlay`). Right from Next mirrors it (`passesNext`):
+  a 2 pt focusable view past Next (focusable only while Next is focused) gives
+  the engine a Right to ask for, and every move into it is refused, so focus
+  never lands there. A `UIFocusGuide` there was never asked (measured on
+  device). Next is a bare chevron until focused.
   Left from Play pages back until the first item, where it opens the sidebar;
   Up and Menu reach the sidebar from any page (#500).
 - **A focusless surface that hands some touches to another recognizer passes
@@ -478,15 +493,18 @@ focusless AND single-transport, or when a needed hand-off is press-only.
   went to the shell's edge catcher, Select and Menu did nothing. A view that
   overlays a focus surface must be exactly its own footprint, and anything
   larger (the letter indicator) must be `isHidden` before a focus request.
-- **Held Up/Down can hand focus to tvOS's fast-scroll index bar.** Home and
-  Library leave vertical scrolling enabled for UIKit. Preserve Left, Select
-  and Menu recovery from the index bar; hiding the index does not establish
-  that it cannot take focus. Verify held-arrow scrolling and visible tile
-  focus after release on a device, including with uncached posters.
-  Earlier custom-scroll captures showed that the index-bar hand-off bypassed
-  `shouldUpdateFocus`, and refusing repeat moves escalated focus to the sidebar.
-  These are device observations, not API guarantees for every OS version.
-  Do not restore a manual offset driver alongside UIKit's native scrolling.
+- **Vertical focus scrolling is UIKit's own** on Home, Library, Search,
+  Person, Season and the detail's lower rows (#631). The page picks where a
+  row rests in `scrollViewWillEndDragging`; `NativeFocusScrollCoordinator`
+  scrolls there itself when UIKit doesn't move. Do not bring back
+  `isScrollEnabled = false` with a display-link driver: UIKit then never
+  prepares the next row in idle time, and every row entry hitched on device.
+- **A held Up/Down hands focus to tvOS's fast-scroll index bar**, even under
+  `indexDisplayMode = .alwaysHidden`, and the hand-off bypasses
+  `shouldUpdateFocus`. With native scrolling the bar scrolls the page itself.
+  Left, Select and Menu bring focus back to a tile (`landFocusOnCenterTile`).
+  Do not refuse the engine's repeat moves instead: after about 1.5 s it
+  escalates past the collection to the sidebar.
 
 ### Context Menus (long-press)
 
@@ -630,6 +648,7 @@ most servers and fails on the ones reached by raw IP (#314, #337).
 The guide fills 24 hours ahead at launch and the full 8 days once a Live TV screen has appeared
 in the session (`LiveTVDataStore.fillHorizonHours`, raised by `elevatePreloadPriority`).
 Two layouts: What's On (`LiveBrowseViewController`, the default) and the Guide (`GuideLayoutView`). Both play through `LiveTVAetherPlayerViewController` on the VOD glass rail. Multiview (`LiveMultiviewViewController`) runs **AetherPlayer** per slot (`MultiStreamViewModel` instantiates `AetherPlayer()`, each tile binds the engine surface), up to 4 concurrent slots. HDHomeRun delivers a direct stream; DVB tuners require a Plex transcode URL with full client-profile parameters (see Plex Live TV section below).
+**Start from Beginning (#444)** asks on any tune whose channel Plex is recording now (`LiveRecordingStart`, `LiveStartQuestion`; Plex direct-play grants only). The tune joins the recorder's session; its part key with `offset=0` lists every segment since the recording began, and the engine joins there with `liveJoinsAtPlaylistStart`. Such a session trails live by `liveLag` (the grant's edge `offset` plus the time spent asking), which each app subtracts from its rail clock; Go Live from it is a fresh join that does not ask again. A grab's airing is `Media[mediaIndex]`, not `Media.first`: a repeating programme lists every airing.
 **Xtream Codes** (`RivuletCore/IPTV/XtreamService.swift`) is live channels only, never VOD or series: account check on `player_api.php` with no `action`, channels from `get_live_streams` + `get_live_categories` (not `get.php`), guide from one bulk `xmltv.php`, streams `/live/<user>/<pass>/<id>.ts`. Panels mix ints and strings for the same field, so replies are walked by hand; never put a reply body in a log or error, `player_api.php` echoes the password. Never loop `get_short_epg` across channels: it gets users rate-banned.
 iOS reads the same `LiveTVDataStore` and saved sources and adds sources through the same `LiveTVSourceConnector`. Dispatcharr API keys and M3U playlist/guide URLs (which often embed credentials) live in the Keychain (`liveTVSourceToken_`, `liveTVSourceM3U_`, `liveTVSourceEPG_` + source id); the saved source JSON keeps one only if the Keychain write fails. An M3U source id is a hash of its URL (`m3uSourceId`), never the URL itself; older URL-keyed sources are re-keyed on launch with their saved channel ids renamed.
 
@@ -1184,6 +1203,11 @@ copy lives in the **left-side description panel**, which is driven by
 `focusedSettingId` with an icon, color, and a clear description. The panel
 updates as the user moves focus between rows.
 
+**Word settings the way Apple does.** Name a toggle for the feature, never against
+it ("Preview Card", not "Skip Preview"). The description says what the feature does,
+as if it is on, in one short sentence where possible; never "On does X, Off does Y".
+A picker's description says how its options differ.
+
 ### Image Loading
 
 UIKit surfaces load remote images through `ImageCacheManager` (Music: `MusicChrome.loadArtwork`).
@@ -1494,6 +1518,14 @@ there unless `SWIFT_ACTIVE_COMPILATION_CONDITIONS` is overridden on the command 
 | `HTTP 500 on /hubs` | Plex server issue (not client-side) |
 | `NSURLErrorDomain -999 cancelled` | User navigated away, request timeout |
 | Aether/AVPlayer startup fatal → auto HLS fallback | Expected: ContentRouter falls back to `.hls` once at current playback time |
+
+### Settings usage
+
+`SettingsUsageTelemetry` (RivuletCore, scheduled by `SentryStartup` on all three apps)
+sends one "Settings snapshot" log a day: each setting's stored value by its `UserDefaults`
+key, never display text, `default` when never written. Its keys are `SyncCatalog.exactKeys`
+plus a short device-local list; a new setting worth counting that does not sync goes in
+that list. The report is `glitchtip/settings-usage.py` in the private unraid repo.
 
 ### Performance tracing
 

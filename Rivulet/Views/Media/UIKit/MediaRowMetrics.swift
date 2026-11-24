@@ -155,7 +155,9 @@ enum MediaRowMetrics {
     static var headerFont: UIFont { .systemFont(ofSize: 31, weight: .semibold) }
     /// Bold section titles (hub headers, playlist header).
     static let sectionTitleSize: CGFloat = 30
-    static var headerColor: UIColor { UIColor.white.withAlphaComponent(0.55) }
+    static var headerColor: UIColor { UIColor.white.withAlphaComponent(0.49) }
+    /// Detail page and Person headers read 0.55 in the Apple TV app; Home's read 0.49.
+    static var pageHeaderColor: UIColor { UIColor.white.withAlphaComponent(0.55) }
 
     /// Section insets (top, bottom) of a titled shelf row of `tile`s. The row's flow layout
     /// centres the frames in their focus padding, so half of it plus half the growth sits
@@ -165,6 +167,17 @@ enum MediaRowMetrics {
         let artBelowHeader = headerBaselineToArt - headerBaselineInset
         return (artBelowHeader - half, shelfArtGap - half - headerHeight - artBelowHeader)
     }
+
+    /// Room under a tile for its title line (`PosterCaption`).
+    static let posterCaptionHeight: CGFloat = 36
+    /// Settings → Appearance → Titles Under Posters: every poster row and grid.
+    static let posterTitlesKey = "showPosterTitles"
+    static let posterTitlesDefault = false
+    static var showsPosterTitles: Bool {
+        (UserDefaults.standard.object(forKey: posterTitlesKey) as? Bool) ?? posterTitlesDefault
+    }
+    /// Extra row height for the title line, 0 while the setting is off.
+    static var posterCaptionSpace: CGFloat { showsPosterTitles ? posterCaptionHeight : 0 }
 
     /// Library poster grid: artwork top to the next row's artwork top (Apple's 55 between 390-tall tiles).
     static var posterGridPitch: CGFloat { poster.art.height + 55 }

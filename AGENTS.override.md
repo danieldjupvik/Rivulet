@@ -52,7 +52,7 @@ Apply upstream's technical and product-fit review standards before calling a cha
 
 - Keep Dolby Vision Profile 7 FEL composition, Height Speakers / TrueHD Atmos and DTS:X height rendering, and Dolby Vision still reshaping.
 - Upstream now provides the tvOS self-build implementation in `Scripts/enthusiast-build.py`. Use its player, conditional settings, and license notices rather than restoring a separate implementation. Lab commits all four AetherEngine traits: DualLayerDolbyVision, DolbyVisionStillReshaping, TrueHDObjectAudio, DTSXObjectAudio, alongside DolbyVisionFelCurves and the resolved LibTrueHD dependency. The trait-restoration CI check permits these only for Lab identity. The shared LibTrueHD license notice defaults on because all three Lab app targets link it; upstream only enables that notice from tvOS startup.
-- FEL stays off for new installs; preserve explicit choices and the existing-install default migration. Height rendering requires choosing a speaker layout. Compiling these capabilities in does not enable either playback option. Physical FEL and height-audio playback still require device validation.
+- Follow upstream playback defaults. On Dolby Vision-capable displays, Profile 7 FEL defaults on when the engine supports it and the user has no stored preference. Preserve explicit choices. Height rendering still requires choosing a speaker layout. Physical FEL and height-audio playback still require device validation.
 - Keep fork bundle IDs, signing, and app groups. Use the fork-owned iCloud.com.danieldjupvik.rivulet.lab.sync container in both app entitlements and AccountVault. Incoming iCloud settings must match the fork's provisioning, not upstream's container.
 
 ## Branch roles (snapshot: 2026-11-06)
@@ -78,6 +78,12 @@ Build and test the combined result before proposing a merge. Leave the parked ex
 ## Sync decisions (2026-11-14)
 
 - Keep Lab identity, signing, app groups, URL scheme and iCloud container.
-- Keep native focus scrolling and episode artwork effects. The artwork contribution remains open upstream; do not overwrite that branch.
+- Keep native focus scrolling.
+- On Apple TV, verify held Up/Down scrolling on Home and Library, including uncached posters. Check that focus is visible on a tile after release or can return from the fast-scroll index with Left, Select, or Menu.
 - Prefer upstream's integrated episode navigation, badge styling, language matching and playback reporting, including maintainer refinements.
 - Keep upstream project format; exclude incidental Xcode serialization changes from the sync.
+
+## Episode artwork decision (2026-11-24)
+
+- Use upstream’s complete episode card while Daniel evaluates its artwork treatment and waits for maintainer feedback. Revisit the fork version only if Daniel requests it.
+- The previous fork card is in pre-sync fork main `8a164676` and on `feat/episode-poster-effects`. The relevant changes are `536c3af8` for native image focus and the specular highlight, `de32b5ae` for the composited fade, and `61fe1f3a` for stale fade cancellation and artwork backing. The composited fade addressed the bright strip seen when artwork lost focus after preview expansion.

@@ -44,11 +44,11 @@ final class LiveMultiviewViewController: UIViewController {
 
     private let layoutButtons = UIStackView()
     private let focusLayoutButton = TransportControlButton(
-        icon: nil, accessibilityLabel: String(localized: "Focus Layout"), diameter: 62)
+        icon: nil, accessibilityLabel: String(localized: "Focus Layout"), diameter: 55)
     private let gridLayoutButton = TransportControlButton(
-        icon: nil, accessibilityLabel: String(localized: "Grid Layout"), diameter: 62)
+        icon: nil, accessibilityLabel: String(localized: "Grid Layout"), diameter: 55)
     private let scoresLayoutButton = TransportControlButton(
-        icon: nil, accessibilityLabel: String(localized: "Scores Layout"), diameter: 62)
+        icon: nil, accessibilityLabel: String(localized: "Scores Layout"), diameter: 55)
     /// The scores layout's right column; exists only while that layout shows.
     private var scoresList: LiveScoresPaneView?
 
@@ -73,6 +73,9 @@ final class LiveMultiviewViewController: UIViewController {
     private var focusOnAddedChannelId: String?
     /// A re-rank was held back while focus was in the row.
     private var addMoreNeedsRank = false
+    /// The rows being ranked off the main thread. A reload asked for meanwhile runs once it lands.
+    private var addMoreTask: Task<Void, Never>?
+    private var addMoreStale = false
     /// Channel id → whether Dispatcharr lists more than one stream for it (#369).
     /// Present while checking, so each channel is asked once.
     private var streamChoices: [String: Bool] = [:]
@@ -85,11 +88,11 @@ final class LiveMultiviewViewController: UIViewController {
 
     private enum Metrics {
         static let side: CGFloat = 90
-        static let gap: CGFloat = 36
+        static let gap: CGFloat = 42
         /// Watch mode's tile area and gap: near the edges, with room for a
         /// tile's focused scale. The bottom keeps the tiles clear of the edit hint.
-        static let watchInset = UIEdgeInsets(top: 40, left: 24, bottom: 44, right: 24)
-        static let watchGap: CGFloat = 20
+        static let watchInset = UIEdgeInsets(top: 40, left: 45, bottom: 44, right: 45)
+        static let watchGap: CGFloat = 34
         static let editHintHeight: CGFloat = 20
         static let cardWidth: CGFloat = 340
         /// One Add More row: What's On's card plus its focus-growth room.
@@ -98,7 +101,7 @@ final class LiveMultiviewViewController: UIViewController {
         static var rowPitch: CGFloat { rowHeight + MediaRowMetrics.rowTopInset + MediaRowMetrics.rowBottomInset }
         /// How much of the next row's cards shows below the current one, so
         /// it reads as scrollable. The show detail page's episode peek.
-        static let nextRowPeek: CGFloat = 40
+        static let nextRowPeek: CGFloat = 34
         /// The Add More area: one row, then the next row down to `nextRowPeek`
         /// of its card (the card sits mid-row, half the growth room down).
         static var addMoreHeight: CGFloat {
@@ -108,8 +111,8 @@ final class LiveMultiviewViewController: UIViewController {
         /// stays clear of the watch hint (y 16 to 96) even at the focused
         /// scale: a tile over the hint let Right from the big focus-layout
         /// tile land on it and switch to watch mode.
-        static let editTilesTop: CGFloat = 110
-        static let editTilesHeight: CGFloat = 450
+        static let editTilesTop: CGFloat = 120
+        static let editTilesHeight: CGFloat = 472
         static var editTilesBottom: CGFloat { editTilesTop + editTilesHeight }
     }
 
@@ -147,7 +150,7 @@ final class LiveMultiviewViewController: UIViewController {
         editHint.isHidden = true
 
         layoutButtons.axis = .horizontal
-        layoutButtons.spacing = 24
+        layoutButtons.spacing = 25
         layoutButtons.addArrangedSubview(focusLayoutButton)
         layoutButtons.addArrangedSubview(gridLayoutButton)
         layoutButtons.addArrangedSubview(scoresLayoutButton)
@@ -183,14 +186,14 @@ final class LiveMultiviewViewController: UIViewController {
 
         NSLayoutConstraint.activate([
             layoutButtons.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            layoutButtons.topAnchor.constraint(equalTo: view.topAnchor, constant: Metrics.editTilesBottom + 20),
+            layoutButtons.topAnchor.constraint(equalTo: view.topAnchor, constant: Metrics.editTilesBottom + 25),
 
             addMoreLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: MediaRowMetrics.liveLeading),
             addMoreLabel.bottomAnchor.constraint(equalTo: addMoreCollection.topAnchor, constant: -4),
 
             addMoreCollection.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             addMoreCollection.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            addMoreCollection.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+            addMoreCollection.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             addMoreCollection.heightAnchor.constraint(equalToConstant: Metrics.addMoreHeight),
         ])
 
@@ -334,8 +337,7 @@ final class LiveMultiviewViewController: UIViewController {
             completion?()
             return
         }
-        let confirm = UserDefaults.standard.object(forKey: "confirmExitMultiview") as? Bool ?? true
-        if confirm && viewModel.streamCount > 1 {
+        if viewModel.streamCount > 1 {
             confirmExit()
             armDismissEchoBlock()
             completion?()
@@ -360,9 +362,11 @@ final class LiveMultiviewViewController: UIViewController {
     private func confirmExit() {
         let alert = UIAlertController(title: String(localized: "Do you want to exit Multiview?"), message: nil, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: String(localized: "Exit"), style: .default) { [weak self] _ in
+        let exit = UIAlertAction(title: String(localized: "Exit"), style: .default) { [weak self] _ in
             self?.exitMultiview(handingOff: nil)
-        })
+        }
+        alert.addAction(exit)
+        alert.preferredAction = exit
         present(alert, animated: true)
     }
 
@@ -415,6 +419,8 @@ final class LiveMultiviewViewController: UIViewController {
         if newMode == .watch && viewModel.streams.isEmpty { return }
         mode = newMode
         let editing = newMode == .edit
+        // Before focus moves, so the tile that takes it grows by the new mode's scale.
+        for tile in tiles.values { tile.focusScale = editing ? 1.05 : 1.04 }
 
         // Everything the new mode shows must be unhidden before focus moves,
         // and the old mode's controls hidden only after, or the engine picks
@@ -926,6 +932,15 @@ final class LiveMultiviewViewController: UIViewController {
             let top = rect.minY + (rect.height - max(mainH, columnH)) / 2
 
             let main = CGRect(x: x, y: top, width: mainW, height: mainH)
+            // A lone empty slot is a prompt: Apple draws it at 0.48 of the main tile, centred on it.
+            if count == 1, placeholder {
+                let w = mainW * 0.48
+                let h = w * 9 / 16
+                let left = rect.minX + (rect.width - (mainW + gap + w)) / 2
+                plan.tiles = [CGRect(x: left, y: top, width: mainW, height: mainH)]
+                plan.placeholders = [CGRect(x: left + mainW + gap, y: top + mainH / 2 - h / 2, width: w, height: h)]
+                return plan
+            }
             var side: [CGRect] = []
             for i in 0..<sideCount {
                 side.append(CGRect(x: x + mainW + gap, y: top + CGFloat(i) * (sideH + gap),
@@ -1088,7 +1103,7 @@ final class LiveMultiviewViewController: UIViewController {
         }
     }
 
-    /// Add More's rows: "Recommended" (channels like the one multiview opened
+    /// Add More's rows: the first (channels like the one multiview opened
     /// with) and then What's On's own rows. One row shows at a time; Down and
     /// Up page between them. Channels already on screen are left out.
     private func reloadAddMore() {
@@ -1114,19 +1129,56 @@ final class LiveMultiviewViewController: UIViewController {
             return
         }
         addMoreNeedsRank = false
+        if addMoreRows.isEmpty {
+            applyAddMoreRows([LiveShelf(id: "placeholder|0", title: String(localized: "Add More"),
+                                        items: LiveShelf.placeholders[0].items)])
+        }
+        guard addMoreTask == nil else {
+            addMoreStale = true
+            return
+        }
 
+        let store = LiveTVDataStore.shared
+        let channels = store.channels.filter { sourceIdFilter == nil || $0.sourceId == sourceIdFilter }
+        let input = AddMoreInput(playing: viewModel.streams.map(\.channel), channels: channels, epg: store.epg,
+                                 favoriteIds: Set(channels.filter(store.isFavorite).map(\.id)))
+        addMoreTask = Task { [weak self, sourceIdFilter] in
+            let recommended = await Self.recommended(input, now: Date())
+            let shelves = await store.whatsOnShelvesInBackground(sourceIdFilter: sourceIdFilter)
+            guard let self else { return }
+            addMoreTask = nil
+            // An empty ranking a newer one replaces keeps what shows.
+            if !(recommended.isEmpty && shelves.isEmpty && addMoreStale) {
+                applyAddMore(recommended: recommended, shelves: shelves)
+            }
+            if addMoreStale {
+                addMoreStale = false
+                reloadAddMore()
+            }
+        }
+    }
+
+    private func applyAddMore(recommended: [LiveCardItem], shelves: [LiveShelf]) {
+        // Focus may have gone into the rows while they were ranked.
+        if let focused = UIFocusSystem.focusSystem(for: addMoreCollection)?.focusedItem as? UIView,
+           focused.isDescendant(of: addMoreCollection) {
+            addMoreNeedsRank = true
+            return
+        }
+        let active = viewModel.activeChannelIds
         let notPlaying = { (item: LiveCardItem) in
             item.kind == .channel && !(item.channel.map { active.contains($0.id) } ?? true)
         }
         // Recordings and Starting Soon are not channels to add now.
-        let shelves = LiveBrowseViewController.buildShelves(sourceIdFilter: sourceIdFilter)
-            .filter { $0.id != "recordings" && $0.id != "soon" }
-        let rows = ([LiveBrowseViewController.Shelf(id: "add", title: String(localized: "Recommended"), items: recommended())]
-                    + shelves)
+        let rows = ([LiveBrowseViewController.Shelf(id: "add", title: String(localized: "Add More"), items: recommended)]
+                    + shelves.filter { $0.id != "recordings" && $0.id != "soon" })
             .map { LiveBrowseViewController.Shelf(id: $0.id, title: $0.title,
                                                   items: $0.items.filter(notPlaying).uniquedById()) }
             .filter { !$0.items.isEmpty }
+        applyAddMoreRows(rows)
+    }
 
+    private func applyAddMoreRows(_ rows: [LiveShelf]) {
         let existing = Set(addMoreSource.snapshot().itemIdentifiers)
         addMoreRows = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         addMoreRow = min(addMoreRow, max(rows.count - 1, 0))
@@ -1143,25 +1195,35 @@ final class LiveMultiviewViewController: UIViewController {
         addMoreSource.apply(snapshot, animatingDifferences: false)
     }
 
+    /// What `recommended` ranks, read on the main thread.
+    private nonisolated struct AddMoreInput: Sendable {
+        let playing: [UnifiedChannel]
+        let channels: [UnifiedChannel]
+        let epg: [String: [UnifiedProgram]]
+        let favoriteIds: Set<String>
+    }
+
     /// Channels most like what is playing: the same kind of programme
     /// (another football game), then the same genre, then the same channel
     /// group, against whichever playing channel each is closest to;
     /// favourites lead within each, then number. Ranked against every tile,
     /// not the one with sound, so the row changes when a channel is added or
     /// removed and never when the sound moves.
-    private func recommended() -> [LiveCardItem] {
-        let store = LiveTVDataStore.shared
-        let references = viewModel.streams.map { channel -> (labels: Set<String>, genre: LiveGenre?, group: String?) in
-            let program = store.getCurrentProgram(for: channel.channel)
+    @concurrent private nonisolated static func recommended(_ input: AddMoreInput, now: Date) async -> [LiveCardItem] {
+        func current(_ channel: UnifiedChannel) -> UnifiedProgram? {
+            input.epg[channel.id]?.first { $0.startTime <= now && $0.endTime > now }
+        }
+        let references = input.playing.map { channel -> (labels: Set<String>, genre: LiveGenre?, group: String?) in
+            let program = current(channel)
             return (LiveGenre.specificLabels(of: program),
-                    LiveGenre.of(channel.channel, airing: program, guide: store.epg[channel.channel.id] ?? []),
-                    channel.channel.groupTitle)
+                    LiveGenre.of(channel, airing: program, guide: input.epg[channel.id] ?? []),
+                    channel.groupTitle)
         }
         func tier(_ channel: UnifiedChannel) -> Int {
             guard !references.isEmpty else { return 0 }
-            let program = store.getCurrentProgram(for: channel)
+            let program = current(channel)
             let labels = LiveGenre.specificLabels(of: program)
-            let genre = LiveGenre.of(channel, airing: program, guide: store.epg[channel.id] ?? [])
+            let genre = LiveGenre.of(channel, airing: program, guide: input.epg[channel.id] ?? [])
             return references.map { reference in
                 if !reference.labels.isDisjoint(with: labels) { return 0 }
                 if let referenceGenre = reference.genre, genre == referenceGenre { return 1 }
@@ -1169,18 +1231,17 @@ final class LiveMultiviewViewController: UIViewController {
                 return 3
             }.min() ?? 3
         }
-        return store.channels
-            .filter { sourceIdFilter == nil || $0.sourceId == sourceIdFilter }
+        return input.channels
             .map { (channel: $0, tier: tier($0)) }
             .sorted { a, b in
                 if a.tier != b.tier { return a.tier < b.tier }
-                let fa = store.isFavorite(a.channel)
-                let fb = store.isFavorite(b.channel)
+                let fa = input.favoriteIds.contains(a.channel.id)
+                let fb = input.favoriteIds.contains(b.channel.id)
                 if fa != fb { return fa }
                 return (a.channel.channelNumber ?? .max) < (b.channel.channelNumber ?? .max)
             }
             .prefix(80)
-            .map { LiveCardItem.channel($0.channel, program: store.getCurrentProgram(for: $0.channel), section: "add") }
+            .map { LiveCardItem.channel($0.channel, program: current($0.channel), section: "add") }
     }
 }
 
@@ -1247,6 +1308,9 @@ final class LiveMultiviewTileView: UIView {
     private weak var boundPlayer: AetherPlayer?
 
     override var canBecomeFocused: Bool { true }
+
+    /// Apple's focused tile grows 5% on the edit screen and 4% in watch mode.
+    var focusScale: CGFloat = 1.05
 
     init(slotId: UUID) {
         self.slotId = slotId
@@ -1337,7 +1401,10 @@ final class LiveMultiviewTileView: UIView {
         speakerIcon.isHidden = slot.isMuted
     }
 
+    /// Captions show on the edit screen only, so the flag also picks its focus scale.
     func setShowsCaption(_ shows: Bool) {
+        focusScale = shows ? 1.05 : 1.04
+        if isFocused { transform = CGAffineTransform(scaleX: focusScale, y: focusScale) }
         captionLabel.alpha = shows ? 1 : 0
         captionScrim.opacity = shows ? 1 : 0
     }
@@ -1376,7 +1443,7 @@ final class LiveMultiviewTileView: UIView {
         // Scale only, as the Apple TV app does: no outline around a playing
         // picture, which distracts and would sit static long enough to burn in.
         coordinator.addCoordinatedAnimations {
-            self.transform = focused ? CGAffineTransform(scaleX: 1.03, y: 1.03) : .identity
+            self.transform = focused ? CGAffineTransform(scaleX: self.focusScale, y: self.focusScale) : .identity
         }
     }
 }

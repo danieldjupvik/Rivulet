@@ -55,7 +55,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
     /// Spacing between episode cards (and season dividers).
     static let episodeGap: CGFloat = MediaRowMetrics.tileGap
     /// The thumb frame plus the text block below it.
-    private static let episodeHeight: CGFloat = EpisodeCell.thumbHeight + 190
+    private static let episodeHeight: CGFloat = EpisodeCell.thumbHeight + EpisodeCell.textBlockHeight
     private static let trailerWidth: CGFloat = EpisodeCell.cardWidth
     // The trailer frame: 410 x 278 artwork plus the focus reserve, title inside.
     private static let trailerHeight: CGFloat = EpisodeCell.trailerThumbHeight
@@ -250,12 +250,12 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
                     // Primary on a title with no extras or related: same peek,
                     // less the header gap, so the strip is the cast row.
                     topInset: isPrimary ? max(0, peek - 16) : 0,
-                    // The header stays put; the circles rest 41.5 below its baseline.
-                    headerTopInset: 46,
+                    // The header reserves its own height, so the circles rest 41.5 below its baseline.
+                    headerTopInset: 0,
                     headerHeight: 72,
                     headerBaseline: BelowFoldSectionHeader.castBaseline
                 )
-            case .about: return self.fullWidthSection(height: 370, topInset: isPrimary ? peek : 0)
+            case .about: return self.fullWidthSection(height: AboutCollectionCell.height, topInset: isPrimary ? peek : 0)
             case .info:
                 // Sized to its rows, so a short title leaves no empty band below them.
                 let columnsWidth = env.container.contentSize.width - Self.rowLeading - Self.rowTrailing
@@ -274,6 +274,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         // so there's NO supplementary header — just one full-width item tall
         // enough for the header + the row.
         let rowHeight = ShelfRowCell.headerHeight + MediaRowMetrics.posterHeight + MediaRowMetrics.focusGrowthPadding
+            + MediaRowMetrics.posterCaptionSpace
         let itemSize = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
                                               heightDimension: .absolute(rowHeight))
         let item = NSCollectionLayoutItem(layoutSize: itemSize)
@@ -494,7 +495,10 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         }
         cell.cellProvider = { innerCV, ip in
             let poster = innerCV.dequeueReusableCell(withReuseIdentifier: PosterCell.reuseID, for: ip) as! PosterCell
-            if ip.item < tiles.count { poster.configure(item: tiles[ip.item]) }
+            if ip.item < tiles.count {
+                poster.configure(item: tiles[ip.item])
+                poster.setCaption(MediaRowMetrics.showsPosterTitles ? PosterCaption.text(for: tiles[ip.item]) : nil)
+            }
             return poster
         }
         cell.onSelect = { [weak self] idx in
@@ -512,7 +516,8 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
             hasSkeleton: false,
             contentToken: hasher.finalize(),
             initialOffset: shelfOffsets[section] ?? 0,
-            panelOvershoot: (left: Self.rowLeading - MediaRowMetrics.rowLeading, right: 0)
+            panelOvershoot: (left: Self.rowLeading - MediaRowMetrics.rowLeading, right: 0),
+            captionHeight: MediaRowMetrics.posterCaptionSpace
         )
     }
 
@@ -1135,6 +1140,44 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
     /// Cleared once focus lands on an episode.
     private var pendingInitialFocus: IndexPath?
     func clearPendingInitialFocus() { pendingInitialFocus = nil }
+
+    // MARK: - Header lift
+
+    /// Apple's Trailers title rises 13 over a focused card under it (measured on device, tvOS 27).
+    private static let headerLift: CGFloat = 13
+    private weak var liftedHeader: BelowFoldSectionHeader?
+
+    override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
+        super.didUpdateFocus(in: context, with: coordinator)
+        updateHeaderLift(focused: context.nextFocusedView, coordinator: coordinator)
+    }
+
+    /// Lifts a card rail's header while the focused card sits under its text, as the Apple TV app does.
+    private func updateHeaderLift(focused: UIView?, coordinator: UIFocusAnimationCoordinator) {
+        var header: BelowFoldSectionHeader?
+        var overlaps = false
+        if let focused, focused.isDescendant(of: collectionView),
+           let cell = sequence(first: focused, next: \.superview).first(where: { $0 is UICollectionViewCell }) as? UICollectionViewCell,
+           let path = collectionView.indexPath(for: cell),
+           sectionKinds.indices.contains(path.section),
+           [.trailers, .extras].contains(sectionKinds[path.section]) {
+            header = collectionView.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader,
+                                                      at: IndexPath(item: 0, section: path.section)) as? BelowFoldSectionHeader
+            if let header {
+                let tile = focused.convert(focused.bounds, to: header)
+                let text = header.textFrame
+                overlaps = tile.minX < text.maxX && tile.maxX > text.minX
+            }
+        }
+        if let old = liftedHeader, old !== header {
+            coordinator.addCoordinatedAnimations({ old.lift = 0 }, completion: nil)
+        }
+        liftedHeader = header
+        guard let header else { return }
+        let lift = overlaps ? Self.headerLift : 0
+        guard header.lift != lift else { return }
+        coordinator.addCoordinatedAnimations({ header.lift = lift }, completion: nil)
+    }
 
     // MARK: - UICollectionViewDelegate
 

@@ -45,6 +45,8 @@ final class MusicPlayer: ObservableObject {
     private var seekTarget: TimeInterval?
     private let engineTrack = MusicEngineTrack()
     private var usesEngine = false
+    /// Where fades rest: the track's loudness cut on AVPlayer. The engine applies its gain itself.
+    private var restingVolume: Float = 1
 
     /// Sweet fade duration for pause/resume
     private let sweetFadeDuration: TimeInterval = 0.3
@@ -62,8 +64,9 @@ final class MusicPlayer: ObservableObject {
 
     // MARK: - Playback Controls
 
-    /// Load and play an audio URL. `useEngine` sends it to AetherEngine, for codecs AVPlayer cannot decode.
-    func load(url: URL, headers: [String: String], useEngine: Bool = false) {
+    /// Load and play an audio URL. `useEngine` sends it to AetherEngine, for codecs AVPlayer cannot
+    /// decode. `gainDB` is the track's loudness correction.
+    func load(url: URL, headers: [String: String], useEngine: Bool = false, gainDB: Double? = nil) {
         cleanUp()
 
         // Configure audio session
@@ -72,7 +75,9 @@ final class MusicPlayer: ObservableObject {
             owner: "MusicPlayer"
         )
 
-        if useEngine { return loadEngine(url: url, headers: headers) }
+        // AVPlayer's volume cannot go past 1, so a lift plays through the engine.
+        if useEngine || (gainDB ?? 0) > 0 { return loadEngine(url: url, headers: headers, gainDB: gainDB) }
+        restingVolume = gainDB.map { Float(pow(10, $0 / 20)) } ?? 1
 
         // Create asset with headers
         let assetOptions: [String: Any] = ["AVURLAssetHTTPHeaderFieldsKey": headers]
@@ -83,6 +88,7 @@ final class MusicPlayer: ObservableObject {
         let queuePlayer = AVQueuePlayer(items: [item])
         queuePlayer.actionAtItemEnd = .advance
         queuePlayer.automaticallyWaitsToMinimizeStalling = true
+        queuePlayer.volume = restingVolume
         self.player = queuePlayer
 
         state = .loading
@@ -95,12 +101,14 @@ final class MusicPlayer: ObservableObject {
                 case .readyToPlay:
                     self.duration = item.duration.seconds.isNaN ? 0 : item.duration.seconds
                     self.state = .playing
+                    await Self.preferOutputChannels(for: item.asset)
+                    guard self.currentItem === item else { return }
                     self.player?.play()
                 case .failed:
                     print("🎵 MusicPlayer: Item failed: \(item.error?.localizedDescription ?? "unknown")")
                     // A codec not on the engine list that AVPlayer still refused: the engine may play it.
                     self.cleanUp()
-                    self.loadEngine(url: url, headers: headers)
+                    self.loadEngine(url: url, headers: headers, gainDB: gainDB)
                 default:
                     break
                 }
@@ -137,10 +145,23 @@ final class MusicPlayer: ObservableObject {
         }
     }
 
-    private func loadEngine(url: URL, headers: [String: String]) {
+    /// A bare AVPlayer never sets the session's output channel count, so surround music left HDMI as
+    /// stereo. Ask for the track's own count, as the engine's audio path does. Off main: it is an XPC call.
+    nonisolated private static func preferOutputChannels(for asset: AVAsset) async {
+        guard let track = try? await asset.loadTracks(withMediaType: .audio).first,
+              let format = try? await track.load(.formatDescriptions).first,
+              let channels = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee.mChannelsPerFrame
+        else { return }
+        let session = AVAudioSession.sharedInstance()
+        let maximum = session.maximumOutputNumberOfChannels
+        guard maximum > 0 else { return }
+        try? session.setPreferredOutputNumberOfChannels(min(Int(channels), maximum))
+    }
+
+    private func loadEngine(url: URL, headers: [String: String], gainDB: Double?) {
         usesEngine = true
         state = .loading
-        engineTrack.load(url: url, headers: headers) { [weak self] in self?.state = .idle }
+        engineTrack.load(url: url, headers: headers, gainDB: gainDB) { [weak self] in self?.state = .idle }
     }
 
     /// Prepare the next track for gapless playback
@@ -162,7 +183,7 @@ final class MusicPlayer: ObservableObject {
         outputVolume = 0
         if usesEngine { engineTrack.play() } else { player?.play() }
         state = .playing
-        fadeVolume(to: 1.0)
+        fadeVolume(to: restingVolume)
     }
 
     func pause() {
@@ -262,6 +283,7 @@ final class MusicPlayer: ObservableObject {
 
         engineTrack.stop()
         usesEngine = false
+        restingVolume = 1
         player?.removeAllItems()
         player = nil
         currentItem = nil

@@ -61,7 +61,7 @@ final class EpisodeCollectionCell: UICollectionViewCell {
 
     /// Search's row tile: the rail's card with its description, as tall as the rail's.
     static let searchTile = MediaRowMetrics.Tile(
-        art: CGSize(width: EpisodeCell.cardWidth, height: EpisodeCell.thumbHeight + 190), growth: .zero)
+        art: CGSize(width: EpisodeCell.cardWidth, height: EpisodeCell.thumbHeight + EpisodeCell.textBlockHeight), growth: .zero)
 
     /// Trailers render with the SAME episode card so the two rows match exactly.
     func configure(trailer: BelowFoldTrailer) {
@@ -307,7 +307,7 @@ final class BelowFoldSectionHeader: UICollectionReusableView {
         super.init(frame: frame)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = MediaRowMetrics.headerFont
-        titleLabel.textColor = MediaRowMetrics.headerColor
+        titleLabel.textColor = MediaRowMetrics.pageHeaderColor
         addSubview(titleLabel)
         baselineConstraint = titleLabel.lastBaselineAnchor.constraint(equalTo: bottomAnchor, constant: -Self.cardBaseline)
         NSLayoutConstraint.activate([
@@ -322,6 +322,22 @@ final class BelowFoldSectionHeader: UICollectionReusableView {
     func configure(title: String, baseline: CGFloat = BelowFoldSectionHeader.cardBaseline) {
         titleLabel.text = title
         baselineConstraint.constant = -baseline
+    }
+
+    /// The title's text, not the label's full width.
+    var textFrame: CGRect {
+        CGRect(origin: titleLabel.frame.origin,
+               size: CGSize(width: titleLabel.intrinsicContentSize.width, height: titleLabel.frame.height))
+    }
+
+    /// How far the title sits above its rest, over a focused card (`BelowFoldCollectionView.updateHeaderLift`).
+    var lift: CGFloat = 0 {
+        didSet { titleLabel.transform = CGAffineTransform(translationX: 0, y: -lift) }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        lift = 0
     }
 }
 
