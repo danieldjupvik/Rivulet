@@ -78,6 +78,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
 
     @Published var showControls = true {
         didSet {
+            if showControls { autoHideBackDeadline = nil }
             // Focus mode cannot outlive visible controls.
             if !showControls { controlsFocusActive = false }
         }
@@ -168,6 +169,105 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         )
     }
 
+    var infoArtworkURLs: [URL] {
+        let urls: [URL?]
+        switch source {
+        case .plex:
+            let paths = metadata.type == "episode"
+                ? [metadata.thumb, metadata.parentThumb, metadata.grandparentThumb]
+                : [metadata.thumb, metadata.art]
+            urls = paths.map { PlexMediaMapper.artworkURL($0, serverURL: serverURL, authToken: authToken) }
+        case .provider(let playback):
+            let item = playback.item
+            let detail = playback.detail.item
+            if item.kind == .episode {
+                urls = [detail.artwork.thumbnail, item.artwork.thumbnail,
+                        detail.artwork.poster, item.artwork.poster,
+                        detail.parentArtwork?.poster, item.parentArtwork?.poster,
+                        detail.grandparentArtwork?.poster, item.grandparentArtwork?.poster]
+            } else {
+                urls = [detail.artwork.poster, item.artwork.poster,
+                        detail.artwork.thumbnail, item.artwork.thumbnail,
+                        detail.artwork.backdrop, item.artwork.backdrop]
+            }
+        }
+        var seen = Set<URL>()
+        return urls.compactMap { $0 }.filter { seen.insert($0).inserted }
+    }
+
+    var infoTitle: String {
+        guard metadata.type == "episode" else { return title }
+        return [metadata.title, metadata.grandparentTitle].lazy
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? String(localized: "Unknown")
+    }
+
+    var infoHasAtmos: Bool {
+        switch source {
+        case .plex:
+            guard let media = metadata.Media?.first, let part = media.Part?.first else { return false }
+            return PlexMediaMapper.mediaSource(media, part, serverURL: serverURL, authToken: authToken)
+                .detailBadges.contains("Atmos")
+        case .provider(let playback):
+            return playback.stream.source.detailBadges.contains("Atmos")
+        }
+    }
+
+    var infoReviewRating: MediaRating? {
+        let ratings = switch source {
+        case .plex: PlexMediaMapper.ratings(metadata)
+        case .provider(let playback): playback.detail.ratings
+        }
+        return MediaRating.detailRating(in: ratings)
+    }
+
+    var needsInfoReviewRating: Bool {
+        guard case .plex = source else { return false }
+        return metadata.ratingKey != nil && metadata.Rating?.isEmpty != false
+    }
+
+    func resolvedInfoReviewRating() async throws -> MediaRating? {
+        try Task.checkCancellation()
+        guard needsInfoReviewRating else { return infoReviewRating }
+        let generation = itemGeneration
+        let stops = stopCount
+        let fullMetadata = await fullPlexItemMetadata()
+        try Task.checkCancellation()
+        guard generation == itemGeneration, stops == stopCount else { throw CancellationError() }
+        guard let fullMetadata else { return infoReviewRating }
+        return MediaRating.detailRating(in: PlexMediaMapper.ratings(fullMetadata))
+    }
+
+    var infoGenre: String? {
+        switch source {
+        case .plex:
+            return MediaGenre.firstNonempty(in: metadata.Genre?.compactMap(\.tag) ?? [])
+        case .provider(let playback):
+            return MediaGenre.firstNonempty(in: playback.detail.genres)
+                ?? MediaGenre.firstNonempty(in: playback.detail.item.genres ?? [])
+                ?? MediaGenre.firstNonempty(in: playback.item.genres ?? [])
+        }
+    }
+
+    func resolvedInfoGenre() async -> String? {
+        guard !Task.isCancelled else { return nil }
+        if let infoGenre { return infoGenre }
+        guard metadata.type == "episode" else { return nil }
+        let generation = itemGeneration
+        let stops = stopCount
+        let seriesGenre: String?
+        switch source {
+        case .plex:
+            seriesGenre = MediaGenre.firstNonempty(in: await plexShowMetadata()?.Genre?.compactMap(\.tag) ?? [])
+        case .provider(let playback):
+            let detail = await providerShowDetail(playback)
+            seriesGenre = MediaGenre.firstNonempty(in: detail?.genres ?? [])
+                ?? MediaGenre.firstNonempty(in: detail?.item.genres ?? [])
+        }
+        guard generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return nil }
+        return infoGenre ?? seriesGenre
+    }
+
     /// Title logo (clearArt) for the pause screen, resolved once per item:
     /// prefer the Plex-provided clearLogo image, falling back to TMDB's
     /// images API via the shared cache (same precedence the home hero and
@@ -201,9 +301,11 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
 
     /// The engine decode loop. One decode runs at a time (each one seeks the
     /// file, a range request when it is remote); a scrub that moves meanwhile
-    /// parks its time in `pendingEngineThumbnailTime`, the next decode.
+    /// leaves its most recent request pending for the next decode.
     private var engineThumbnailTask: Task<Void, Never>?
-    private var pendingEngineThumbnailTime: TimeInterval?
+    private var pendingEngineThumbnail: (time: TimeInterval, request: Int)?
+    private var scrubThumbnailRequest = 0
+    private var appliedScrubThumbnailRequest = 0
 
     // MARK: - Skip Marker State
     @Published private(set) var activeMarker: PlexMarker? {
@@ -236,7 +338,13 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
     @Published var scrubTime: TimeInterval = 0
 
     // MARK: - Post-Video State
-    @Published var postVideoState: PostVideoState = .hidden
+    @Published var postVideoState: PostVideoState = .hidden {
+        didSet {
+            if oldValue != .hidden, postVideoState == .hidden, controlsAllowAutoHide {
+                startControlsHideTimer()
+            }
+        }
+    }
     @Published private(set) var nextEpisode: PlexMetadata?
     /// Set once the next episode has been RESOLVED EARLY for the current episode
     /// (driven by Aether's first non-nil currentAVPlayer). Guards the fetch so
@@ -461,7 +569,12 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
     /// Bumped when `metadata` swaps to a different item (not on in-place field
     /// fills). UI caching per-item state observes this, since `metadata` is not published.
     @Published private(set) var itemGeneration = 0 {
-        didSet { timeline.begin(); serverEndedPlayback = false }
+        didSet {
+            timeline.begin()
+            serverEndedPlayback = false
+            cancelScrubThumbnailRequests()
+            autoHideBackDeadline = nil
+        }
     }
     var title: String { metadata.title ?? String(localized: "Unknown") }
     var subtitle: String? {
@@ -494,7 +607,9 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
     private var currentItemHasStarted = false
     private var controlsTimer: Timer?
     /// AVKit hides its controls 8s after the last press or focus move.
-    private let controlsHideDelay: TimeInterval = 8
+    static let controlsHideDelay: TimeInterval = 8
+    var hasRemoteContact: (@MainActor () -> Bool)?
+    private var autoHideBackDeadline: CFTimeInterval?
     private var scrubTimer: Timer?
     /// Holds the rail at a seek's target until the picture lands there. Fed by
     /// Aether's `seekEvents`; inert on the hls route, whose AVPlayer seek
@@ -521,6 +636,11 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
     private var pausedPosterTimers: [Timer] = []
     private static let pauseScreenSchedule: [(delay: TimeInterval, tier: PausePresentation)] =
         [(10, .info), (30, .art), (120, .dimmed)]
+    var hasDescriptionOverlay: (@MainActor () -> Bool)?
+    var controlsOwnRemoteInput: Bool {
+        controlsFocusActive || isRailPanelOpen || hasDescriptionOverlay?() == true
+    }
+
     /// True while a rail panel is presented, so the pause screen stays off.
     /// Set by `PlayerContainerViewController`.
     var isRailPanelOpen = false {
@@ -642,9 +762,12 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
 
     /// AVKit's tvOS speed set. A model lives for one item, so it starts at 1x.
     static let playbackSpeeds: [Float] = [0.5, 1, 1.25, 1.5, 2]
-    private(set) var playbackSpeed: Float = 1
+    @Published private(set) var playbackSpeed: Float = 1
+    @Published var roomPlaybackRate: Float?
+    var endTimePlaybackSpeed: Float { roomPlaybackRate ?? playbackSpeed }
 
     func setPlaybackSpeed(_ speed: Float) {
+        guard roomPlaybackRate == nil else { return }
         playbackSpeed = speed
         aetherPlayer?.playbackRate = speed
         guard let player else { return }
@@ -678,7 +801,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
 
     /// The playlist being played, by position; nil plays one title with series Up Next.
     private(set) var playQueue: PlayQueue<PlaylistEntry>?
-    /// Full Plex metadata for the next item, by ratingKey. Tests stub the server here.
+    /// Full Plex metadata by rating key. Tests stub the server here.
     var plexMetadataFetch: (_ serverURL: String, _ authToken: String, _ ratingKey: String) async throws -> PlexMetadata = {
         try await PlexNetworkManager.shared.getFullMetadata(serverURL: $0, authToken: $1, ratingKey: $2)
     }
@@ -1852,6 +1975,8 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             cancelPausedPosterTimer()
         } else {
             controlsTimer?.invalidate()
+            controlsTimer = nil
+            autoHideBackDeadline = nil
             if state == .paused || state == .ended || state == .idle {
                 UIApplication.shared.isIdleTimerDisabled = false
             }
@@ -1968,7 +2093,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         let hasChapters = !(metadata.Chapter ?? []).isEmpty
         let hasStreamDetails = metadata.Media?.first?.Part?.first?.Stream?.isEmpty == false
         if !hasMarkers || !hasChapters || !hasStreamDetails {
-            await fetchMarkersIfNeeded()
+            await loadPlexPlaybackMetadata()
         }
         guard stops == stopCount, !Task.isCancelled else { return }
         // Arm the local content filter for this item: reload settings, restore
@@ -2343,7 +2468,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             do {
                 let ap = aetherPlayer ?? AetherPlayer()
                 aetherPlayer = ap
-                ap.playbackRate = playbackSpeed
+                ap.playbackRate = endTimePlaybackSpeed
                 // A load drops the engine's selection; the unseen read is chosen again from its tracks.
                 aetherSubtitleModel.update(cues: [])
                 silentSubtitleTrackId = nil
@@ -2896,7 +3021,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             existing.replaceCurrentItem(with: item)
         } else {
             let newPlayer = AVPlayer(playerItem: item)
-            newPlayer.defaultRate = playbackSpeed
+            newPlayer.defaultRate = endTimePlaybackSpeed
             player = newPlayer
             _playerForCleanup = newPlayer
         }
@@ -4177,13 +4302,19 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         cancelAetherStallWatchdog()
         titleLogoResolveTask?.cancel()
         titleLogoResolveTask = nil
+        providerShow?.task.cancel()
+        providerShow = nil
+        plexShow?.task.cancel()
+        plexShow = nil
+        fullPlexItemMetadataTask?.task.cancel()
+        fullPlexItemMetadataTask = nil
         clearReplayWindow(reason: "playback stopped")
         contentFilter.reset()
         muteEdgeWork?.cancel()
         muteEdgeWork = nil
         subtitleImageReader.read([])
         releaseThumbnailCache()
-        cancelEngineThumbnail()
+        cancelScrubThumbnailRequests()
 
         // Clear the active playback route and content from the App Hang scope
         // (RIVULET-41) so a later hang off the player isn't tagged with a stale
@@ -4215,6 +4346,8 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         stopOutgoingTranscode()
 
         controlsTimer?.invalidate()
+        controlsTimer = nil
+        autoHideBackDeadline = nil
         wheelScrubbingTimer?.invalidate()
         wheelScrubbingTimer = nil
         wheelScrubbing = false
@@ -4779,8 +4912,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             isScrubbing = false
             scrubSpeed = 0
             scrubStartTime = nil
-            scrubThumbnail = nil
-            cancelEngineThumbnail()
+            cancelScrubThumbnailRequests()
         }
     }
 
@@ -4791,8 +4923,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         scrubSpeed = 0
         scrubStartTime = nil
         scrubTime = currentTime
-        scrubThumbnail = nil
-        cancelEngineThumbnail()
+        cancelScrubThumbnailRequests()
         startControlsHideTimer()
     }
 
@@ -4846,66 +4977,82 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             hasServerThumbnails: !PlexThumbnailService.shared.isUnavailable(partId: partId))
     }
 
-    private func loadThumbnail(for time: TimeInterval) {
+    @discardableResult
+    func loadThumbnail(for time: TimeInterval) -> Task<Void, Never>? {
+        scrubThumbnailRequest += 1
+        let request = scrubThumbnailRequest
         if case .provider(let playback) = source {
-            Task {
-                if let still = await providerScrubPreviews.image(at: time, for: playback) {
-                    self.scrubThumbnail = UIImage(cgImage: still)
+            return Task { [weak self, providerScrubPreviews] in
+                let still = await providerScrubPreviews.image(at: time, for: playback)
+                guard let self else { return }
+                if let still {
+                    self.publishScrubThumbnail(still, request: request)
                 } else {
-                    self.loadEngineThumbnail(for: time)
+                    self.loadEngineThumbnail(for: time, request: request)
                 }
             }
-            return
         }
         guard currentScrubThumbnailSource == .server else {
-            loadEngineThumbnail(for: time)
-            return
+            loadEngineThumbnail(for: time, request: request)
+            return engineThumbnailTask
         }
         guard let partId = metadata.Media?.first?.Part?.first?.id else {
             print("⚠️ No part ID available for thumbnails")
-            return
+            return nil
         }
 
-        Task {
+        return Task { [weak self, serverURL, authToken] in
             let thumbnail = await PlexThumbnailService.shared.getThumbnail(
                 partId: partId,
                 time: time,
                 serverURL: serverURL,
                 authToken: authToken
             )
+            guard let self else { return }
             // The BIF index just 404'd: this scrub, and every later one, decodes.
             if thumbnail == nil, self.currentScrubThumbnailSource == .engine {
-                self.loadEngineThumbnail(for: time)
+                self.loadEngineThumbnail(for: time, request: request)
                 return
             }
-            self.scrubThumbnail = thumbnail.map(UIImage.init(cgImage:))
+            if let thumbnail { self.publishScrubThumbnail(thumbnail, request: request) }
         }
     }
 
     /// Latest wins: while a decode runs, only the newest scrub time is kept,
     /// and the frame that comes back shows even if the scrub has moved on,
     /// since it is the nearest still there is.
-    private func loadEngineThumbnail(for time: TimeInterval) {
-        pendingEngineThumbnailTime = time
+    private func loadEngineThumbnail(for time: TimeInterval, request: Int) {
+        guard isScrubbing, request > appliedScrubThumbnailRequest,
+              request > (pendingEngineThumbnail?.request ?? 0) else { return }
+        pendingEngineThumbnail = (time, request)
         guard engineThumbnailTask == nil, let player = aetherPlayer else { return }
         engineThumbnailTask = Task { [weak self] in
             while !Task.isCancelled, let self, self.isScrubbing,
-                  let wanted = self.pendingEngineThumbnailTime {
-                self.pendingEngineThumbnailTime = nil
-                let frame = await player.scrubFrame(atSeconds: wanted)
-                if !Task.isCancelled, self.isScrubbing, let frame {
-                    self.scrubThumbnail = UIImage(cgImage: frame)
+                  let wanted = self.pendingEngineThumbnail {
+                self.pendingEngineThumbnail = nil
+                guard wanted.request > self.appliedScrubThumbnailRequest else { continue }
+                let frame = await player.scrubFrame(atSeconds: wanted.time)
+                if !Task.isCancelled, let frame {
+                    self.publishScrubThumbnail(frame, request: wanted.request)
                 }
             }
-            // A cancelled loop was already replaced by cancelEngineThumbnail.
+            // A cancelled loop was already replaced by cancelScrubThumbnailRequests.
             if !Task.isCancelled { self?.engineThumbnailTask = nil }
         }
     }
 
-    private func cancelEngineThumbnail() {
+    private func publishScrubThumbnail(_ image: CGImage, request: Int) {
+        guard isScrubbing, request > appliedScrubThumbnailRequest else { return }
+        appliedScrubThumbnailRequest = request
+        scrubThumbnail = UIImage(cgImage: image)
+    }
+
+    private func cancelScrubThumbnailRequests() {
+        appliedScrubThumbnailRequest = scrubThumbnailRequest
         engineThumbnailTask?.cancel()
         engineThumbnailTask = nil
-        pendingEngineThumbnailTime = nil
+        pendingEngineThumbnail = nil
+        scrubThumbnail = nil
     }
 
     /// Chapter start times in seconds, derived from Plex chapter metadata.
@@ -5021,9 +5168,9 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             generatedSubtitlesPickedOn = metadata.ratingKey
             return
         }
-        TrackIntentStore.subtitleIntent = .afterPick(
+        TrackIntentStore.saveSubtitlePick(
             id.flatMap { id in subtitleTracks.first { $0.id == id } },
-            replacing: TrackIntentStore.effectiveSubtitleIntent, audioLanguage: playingAudioLanguage)
+            audioLanguage: playingAudioLanguage)
     }
 
     // MARK: - Subtitle Search
@@ -5076,8 +5223,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             guard let arrived else {
                 return showCompatibilityNotice(PlaybackNotice(title: String(localized: "Subtitles Didn't Arrive"), symbol: "captions.bubble"))
             }
-            TrackIntentStore.subtitleIntent = .afterPick(
-                arrived, replacing: TrackIntentStore.effectiveSubtitleIntent, audioLanguage: playingAudioLanguage)
+            TrackIntentStore.saveSubtitlePick(arrived, audioLanguage: playingAudioLanguage)
             tracks.subtitle = .track(arrived.id)
             hideCompatibilityNotice()
             enqueueStreamWork { vm in
@@ -5367,24 +5513,60 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         startControlsHideTimer()
     }
 
-    private func startControlsHideTimer() {
-        // Only an open rail panel suspends auto-hide. Do not gate on
-        // `controlsFocusActive`: it is true whenever the rail is up (#277).
-        guard !isRailPanelOpen else { return }
+    func consumeAutoHideBackGrace(now: CFTimeInterval = CACurrentMediaTime()) -> Bool {
+        guard let deadline = autoHideBackDeadline else { return false }
+        autoHideBackDeadline = nil
+        return now < deadline && !showControls && playbackState == .playing && !isScrubbing
+            && postVideoState == .hidden && pausePresentation == .frame
+            && !skipPillOwnsFocus && skipCountdownSeconds == 0
+    }
+
+    func autoHideControls(now: CFTimeInterval = CACurrentMediaTime()) {
         controlsTimer?.invalidate()
-        controlsTimer = Timer.scheduledTimer(withTimeInterval: controlsHideDelay, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            let isPlaying = self.playbackState == .playing
-            Task { @MainActor [weak self] in
-                guard let self, isPlaying else { return }
-                // Re-check at FIRE time: a panel can open after the timer was
-                // already armed. The arm-time guard alone leaves that timer running.
-                guard !self.isRailPanelOpen else { return }
-                withAnimation(.easeOut(duration: 0.3)) {
-                    self.showControls = false
+        controlsTimer = nil
+        autoHideBackDeadline = now + 0.5
+        withAnimation(.easeOut(duration: 0.3)) { showControls = false }
+    }
+
+    private var controlsAllowAutoHide: Bool {
+        showControls && !isScrubbing && postVideoState == .hidden && pausePresentation == .frame
+    }
+
+    enum PaneIdleAction {
+        case keepOpen, postpone, closePane, hideControls
+    }
+
+    func paneIdleAction(isDetails: Bool) -> PaneIdleAction {
+        guard !isDetails, controlsAllowAutoHide else { return .keepOpen }
+        switch playbackState {
+        case .loading, .ready, .buffering:
+            return .postpone
+        case .playing, .paused:
+            if hasRemoteContact?() == true { return .postpone }
+            return playbackState == .playing ? .hideControls : .closePane
+        default:
+            return .keepOpen
+        }
+    }
+
+    private func startControlsHideTimer() {
+        controlsTimer?.invalidate()
+        controlsTimer = nil
+        guard playbackState == .playing, !isRailPanelOpen else { return }
+        let timer = Timer(timeInterval: Self.controlsHideDelay, repeats: false) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.controlsTimer === timer else { return }
+                self.controlsTimer = nil
+                guard self.playbackState == .playing, !self.isRailPanelOpen, self.controlsAllowAutoHide else { return }
+                if self.hasRemoteContact?() == true {
+                    self.startControlsHideTimer()
+                } else {
+                    self.autoHideControls()
                 }
             }
         }
+        controlsTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     // MARK: - Compatibility Notice
@@ -5898,42 +6080,28 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         return metadata.Media?.first.map { VersionRanking.key($0).tier } ?? 0
     }
 
-    /// Fetch detailed metadata with markers if not already present
-    private func fetchMarkersIfNeeded() async {
-        // A provider item's shim already carries markers, chapters and streams.
-        guard case .plex = source, let ratingKey = metadata.ratingKey else {
-            return
+    func loadPlexPlaybackMetadata() async {
+        let generation = itemGeneration
+        let stops = stopCount
+        guard let detailedMetadata = await fullPlexItemMetadata(),
+              generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return }
+
+        if let markers = detailedMetadata.Marker, !markers.isEmpty {
+            metadata.Marker = markers
         }
 
-        do {
-            let detailedMetadata = try await plexMetadataFetch(serverURL, authToken, ratingKey)
-
-            // Update metadata with markers from detailed fetch
-            if let markers = detailedMetadata.Marker, !markers.isEmpty {
-                metadata.Marker = markers
-            }
-
-            // Update chapters (Plex returns these at metadata level, not inside Part)
-            if let chapters = detailedMetadata.Chapter, !chapters.isEmpty {
-                metadata.Chapter = chapters
-            }
-
-            // Update Media (includes Part with stream details)
-            // Hub items often lack Part/Stream data
-            if let media = detailedMetadata.Media, !media.isEmpty {
-                applyVersion(currentVersionChoice, to: media)
-            }
-
-            // Fill in missing display info (summary, genres, etc.)
-            if metadata.summary == nil { metadata.summary = detailedMetadata.summary }
-            if metadata.Genre == nil { metadata.Genre = detailedMetadata.Genre }
-            if metadata.contentRating == nil { metadata.contentRating = detailedMetadata.contentRating }
-            // External ids (imdb://, tmdb://): the content filter can key its
-            // list lookup on them, and hub items arrive without them.
-            if metadata.Guid == nil { metadata.Guid = detailedMetadata.Guid }
-        } catch {
-            print("⏭️ [Skip] Failed to fetch detailed metadata: \(error)")
+        if let chapters = detailedMetadata.Chapter, !chapters.isEmpty {
+            metadata.Chapter = chapters
         }
+
+        applyVersion(currentVersionChoice, to: detailedMetadata.Media)
+
+        if metadata.summary == nil { metadata.summary = detailedMetadata.summary }
+        if metadata.Genre == nil { metadata.Genre = detailedMetadata.Genre }
+        if metadata.contentRating == nil { metadata.contentRating = detailedMetadata.contentRating }
+        // External ids (imdb://, tmdb://): the content filter can key its
+        // list lookup on them, and hub items arrive without them.
+        if metadata.Guid == nil { metadata.Guid = detailedMetadata.Guid }
     }
 
     /// Adds IntroDB backup markers for kinds Plex didn't provide. Episodes
@@ -5966,13 +6134,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
     /// The show's IMDB id (e.g. "tt0903747"), resolved from the show-level
     /// metadata's external guids.
     private func showIMDBID() async -> String? {
-        guard let showKey = metadata.grandparentRatingKey else { return nil }
-        guard let show = try? await PlexNetworkManager.shared.getMetadata(
-            serverURL: serverURL,
-            authToken: authToken,
-            ratingKey: showKey,
-            includeGuids: true
-        ) else { return nil }
+        guard let show = await plexShowMetadata() else { return nil }
         return show.Guid?
             .compactMap(\.id)
             .first { $0.hasPrefix("imdb://") }?
@@ -6239,9 +6401,10 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
     /// has cast.
     func loadInsightsCast() async {
         let generation = itemGeneration
+        let stops = stopCount
         let isMovie = metadata.type == "movie"
         let tmdbId = await insightsTmdbID()
-        guard generation == itemGeneration else { return }
+        guard generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return }
 
         var people: [MediaPerson] = []
 
@@ -6259,12 +6422,12 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
 
         // Plex Role fallback: item's own roles, then (episodes) the show's roles.
         if people.isEmpty, case .plex = source {
+            guard generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return }
             // Hub items carry a truncated Role list (3 on Continue Watching).
-            var roles = await insightsFullMetadata()?.Role ?? metadata.Role ?? []
-            if roles.isEmpty, metadata.type == "episode", let showKey = metadata.grandparentRatingKey,
-               let show = try? await PlexNetworkManager.shared.getFullMetadata(
-                   serverURL: serverURL, authToken: authToken, ratingKey: showKey) {
-                roles = show.Role ?? []
+            var roles = await fullPlexItemMetadata()?.Role ?? metadata.Role ?? []
+            guard generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return }
+            if roles.isEmpty, metadata.type == "episode" {
+                roles = await plexShowMetadata()?.Role ?? []
             }
             people = InsightsCastMapper.mediaPeople(
                 fromPlexRoles: roles, serverURL: serverURL, authToken: authToken,
@@ -6276,11 +6439,12 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         if people.isEmpty, case .provider(let playback) = source {
             people = playback.detail.cast
             if people.isEmpty, metadata.type == "episode" {
+                guard generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return }
                 people = await providerShowDetail(playback)?.cast ?? []
             }
         }
 
-        guard generation == itemGeneration else { return }
+        guard generation == itemGeneration, stops == stopCount, !Task.isCancelled else { return }
         insightsCast = people
     }
 
@@ -6358,23 +6522,31 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
             return await InsightsShowIDResolver.shared.resolve(await resolveShowExternalIDs())
         }
         if let id = metadata.tmdbId { return id }
-        return await insightsFullMetadata()?.tmdbId
+        return await fullPlexItemMetadata()?.tmdbId
     }
 
-    /// One full-metadata fetch per item, shared by the cast and trivia loads.
-    private var insightsFullMetadataTask: (generation: Int, task: Task<PlexMetadata?, Never>)?
+    /// Shares in-flight and successful full metadata reads between playback, Info and Insights.
+    private var fullPlexItemMetadataTask: (generation: Int, task: Task<PlexMetadata?, Never>)?
 
-    private func insightsFullMetadata() async -> PlexMetadata? {
-        guard case .plex = source, let key = metadata.ratingKey else { return nil }
-        if let cached = insightsFullMetadataTask, cached.generation == itemGeneration {
+    private func fullPlexItemMetadata() async -> PlexMetadata? {
+        guard !Task.isCancelled, case .plex = source, let key = metadata.ratingKey else { return nil }
+        if let cached = fullPlexItemMetadataTask, cached.generation == itemGeneration {
             return await cached.task.value
         }
+        fullPlexItemMetadataTask?.task.cancel()
         let (url, token) = (serverURL, authToken)
-        let task = Task {
-            try? await PlexNetworkManager.shared.getFullMetadata(serverURL: url, authToken: token, ratingKey: key)
+        let fetch = plexMetadataFetch
+        let task = Task<PlexMetadata?, Never> {
+            guard !Task.isCancelled else { return nil }
+            let result = try? await fetch(url, token, key)
+            return Task.isCancelled ? nil : result
         }
-        insightsFullMetadataTask = (itemGeneration, task)
-        return await task.value
+        fullPlexItemMetadataTask = (itemGeneration, task)
+        let result = await task.value
+        if result == nil, fullPlexItemMetadataTask?.task == task {
+            fullPlexItemMetadataTask = nil
+        }
+        return result
     }
 
     /// `.provider` episodes only: the playback, since an episode's own ids are
@@ -6384,24 +6556,46 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         return playback
     }
 
-    /// `.provider` only: the series detail (ids and cast), fetched once per show.
     private var providerShow: (show: MediaItemRef, task: Task<MediaItemDetail?, Never>)?
+    private var plexShow: (key: String, task: Task<PlexMetadata?, Never>)?
+
+    private func plexShowMetadata() async -> PlexMetadata? {
+        guard !Task.isCancelled, case .plex = source, let key = metadata.grandparentRatingKey else { return nil }
+        if let cached = plexShow, cached.key == key { return await cached.task.value }
+        plexShow?.task.cancel()
+        let (url, token) = (serverURL, authToken)
+        let fetch = plexMetadataLookup
+        let task = Task<PlexMetadata?, Never> {
+            guard !Task.isCancelled else { return nil }
+            let result = try? await fetch(url, token, key)
+            return Task.isCancelled ? nil : result
+        }
+        plexShow = (key, task)
+        let result = await task.value
+        if result == nil, plexShow?.task == task { plexShow = nil }
+        return result
+    }
 
     /// A provider episode's series detail; nil when the episode has no show or the fetch fails.
     private func providerShowDetail(_ playback: ProviderPlayback) async -> MediaItemDetail? {
-        guard let show = playback.item.grandparentRef else { return nil }
+        guard let show = playback.detail.item.grandparentRef ?? playback.item.grandparentRef else { return nil }
         if let cached = providerShow, cached.show == show { return await cached.task.value }
+        providerShow?.task.cancel()
         let provider = playback.provider
-        let task = Task { try? await provider.fullDetail(for: show) }
+        let task = Task {
+            let result = try? await provider.fullDetail(for: show)
+            return Task.isCancelled ? nil : result
+        }
         providerShow = (show, task)
-        return await task.value
+        let result = await task.value
+        if result == nil, providerShow?.task == task { providerShow = nil }
+        return result
     }
 
     /// A provider episode's show TMDB id: the series' own, else resolved from
     /// its tvdb or imdb id. nil when the episode has no show.
     func providerShowTmdbID(_ playback: ProviderPlayback) async -> Int? {
-        guard playback.item.grandparentRef != nil else { return nil }
-        let ids = await providerShowDetail(playback)?.externalIDs ?? [:]
+        guard let ids = await providerShowDetail(playback)?.externalIDs else { return nil }
         return await InsightsShowIDResolver.shared.resolve(ShowExternalIDs(
             tmdb: ids["tmdb"].flatMap { Int($0) },
             tvdb: ids["tvdb"].flatMap { Int($0) },
@@ -6419,10 +6613,7 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         if inHand.tmdb != nil || inHand.tvdb != nil || inHand.imdb != nil {
             return inHand
         }
-        guard let showKey = metadata.grandparentRatingKey else { return inHand }
-        guard let showMeta = try? await PlexNetworkManager.shared.getMetadata(
-            serverURL: serverURL, authToken: authToken, ratingKey: showKey, includeGuids: true
-        ) else { return inHand }
+        guard let showMeta = await plexShowMetadata() else { return inHand }
         // The show payload's own guid/Guid array carries the show's external ids.
         var tmdb = showMeta.guid.flatMap(PlexMetadata.extractTmdbId)
         var tvdb = showMeta.guid.flatMap(PlexMetadata.extractTvdbId)
@@ -7438,6 +7629,9 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         skipCountdownTimer?.invalidate()
         aetherStallWatchdogTask?.cancel()
         insightsRecheckTask?.cancel()
+        providerShow?.task.cancel()
+        plexShow?.task.cancel()
+        fullPlexItemMetadataTask?.task.cancel()
         if let observer = appBackgroundObserver {
             NotificationCenter.default.removeObserver(observer)
         }

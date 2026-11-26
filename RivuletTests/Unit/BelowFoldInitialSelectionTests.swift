@@ -58,18 +58,23 @@ struct BelowFoldInitialSelectionTests {
     }
 
     /// The full load finishing after the user entered the rail must not scroll it under them.
-    @Test func lateFullLoadLeavesAFocusedRailAlone() async throws {
+    @Test(ExclusiveKeyWindowTrait())
+    func lateFullLoadLeavesAFocusedRailAlone() async throws {
         let provider = makeProvider()
         MediaProviderRegistry.shared.register(provider)
         defer { MediaProviderRegistry.shared.unregister(providerID: provider.id) }
         let view = BelowFoldCollectionView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let host = FocusHost(view)
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
         let window = UIWindow(windowScene: scene)
         window.frame = view.frame
         window.rootViewController = host
         window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer {
+            window.isHidden = true
+            previousKeyWindow?.makeKey()
+        }
 
         try await load(view, item: item("show", .show), full: false)
         view.layoutIfNeeded()

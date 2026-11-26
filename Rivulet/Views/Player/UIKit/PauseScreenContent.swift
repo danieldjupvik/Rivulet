@@ -81,11 +81,11 @@ enum PauseScreenText {
 
     /// "38 min left · Ends at 10:41 PM", nil without a duration. `endTime` formats
     /// the end (the short time style); a parameter so tests can pin it.
-    static func timeLine(position: TimeInterval, duration: TimeInterval, now: Date,
+    static func timeLine(position: TimeInterval, duration: TimeInterval, playbackSpeed: Float = 1, now: Date,
                          endTime: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> String? {
         guard duration > 0 else { return nil }
         let left = max(0, duration - max(0, position))
-        let end = endTime(now.addingTimeInterval(left))
+        let end = endTime(PlaybackEndTime.estimate(from: now, remaining: left, speed: playbackSpeed))
         return String(localized: "\(FolderRowDetail.length(left)) left · Ends at \(end)")
     }
 

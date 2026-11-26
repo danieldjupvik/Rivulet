@@ -113,6 +113,13 @@ final class WatchTogetherPlayerAdapter: PlayerAdapter {
         applyRate()
     }
 
+    func releasePlayer(restoringRate rate: Float?) {
+        let releasedPlayer = player
+        player = nil
+        stopTrimming()
+        if let rate { releasedPlayer?.syncSetRate(rate) }
+    }
+
     private func applyRate() {
         player?.syncSetRate(Float(roomRate * trim))
     }

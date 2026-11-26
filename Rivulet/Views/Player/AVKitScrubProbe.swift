@@ -1276,7 +1276,7 @@ enum ScrubStatesProbe {
             }
         } else {
             let card = PlayerInfoCardView(content: .init(posterURL: nil, title: "", summary: nil, genre: nil,
-                                                         runtimeMinutes: nil, badges: []))
+                                                         runtime: nil, badges: []))
             card.frame = CGRect(x: 80, y: 744, width: 1760, height: 250)
             vc.view.addSubview(card)
             if let washColor, let glass = card.subviews.first(where: { $0 is UIVisualEffectView }) as? UIVisualEffectView {

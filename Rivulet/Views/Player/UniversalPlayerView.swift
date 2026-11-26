@@ -734,14 +734,7 @@ struct UniversalPlayerView: View {
                 viewModel?.playbackState == .paused
             }
             remoteInput.isControlsFocusCheck = { [weak viewModel] in
-                guard let viewModel else { return false }
-                // A presented rail panel (Info, Up Next, Insights) owns Left/Right
-                // for its own content, and focus inside it is NOT inside the rail,
-                // so `controlsFocusActive` is false there. Without this term the
-                // GameController path kept seeking behind an open popup — the
-                // container's own press handling already stands down for a live
-                // panel (`contentOwnsPresses`), and this is its twin.
-                return viewModel.controlsFocusActive || viewModel.isRailPanelOpen
+                viewModel?.controlsOwnRemoteInput ?? false
             }
             remoteInput.isScrubberFocusCheck = { [weak viewModel] in
                 viewModel?.scrubberOwnsFocus ?? false

@@ -32,13 +32,13 @@ final class InsightsActorView: UIView {
     private(set) var knownForCount = 0
 
     private let portrait = UIImageView()
-    private let bio = PlayerSummaryButton(text: String(localized: "Loading…"), lines: 4)
+    private let bio = PlayerSummaryButton(text: String(localized: "Loading…"), lines: 4, style: .biography)
     private let posterScroll = UIScrollView()
     private let posterStack = UIStackView()
     private var portraitTask: Task<Void, Never>?
     private var biography: String?
     /// Select on a loaded bio, with its whole text.
-    var onReadBio: ((String) -> Void)?
+    var onReadBio: ((String, UIView) -> Void)?
 
     init(person: MediaPerson) {
         self.person = person
@@ -59,7 +59,7 @@ final class InsightsActorView: UIView {
 
         bio.onPress = { [weak self] in
             guard let self, let biography = self.biography else { return }
-            self.onReadBio?(biography)
+            self.onReadBio?(biography, self.bio)
         }
 
         posterScroll.clipsToBounds = true
@@ -147,7 +147,7 @@ final class InsightsActorView: UIView {
         }
     }
 
-    override var preferredFocusEnvironments: [UIFocusEnvironment] { [bio] }
+    override var preferredFocusEnvironments: [UIFocusEnvironment] { [bio, posterScroll] }
 }
 
 /// One filmography title: a poster. Focusable so focus scrolls the row.

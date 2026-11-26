@@ -13,9 +13,14 @@
 
 import UIKit
 
-/// AVKit's control glass, as the tool buttons use it.
-func makePaneGlass(cornerRadius: CGFloat) -> UIView {
-    let glass = UIVisualEffectView(effect: TransportControlButton.glassEffect())
+func makeVODCardGlassEffect() -> UIGlassEffect {
+    let effect = UIGlassEffect(style: .regular)
+    effect.tintColor = UIColor.white.withAlphaComponent(0.04)
+    return effect
+}
+
+func makePaneGlass(cornerRadius: CGFloat, effect: UIGlassEffect = TransportControlButton.glassEffect()) -> UIView {
+    let glass = UIVisualEffectView(effect: effect)
     glass.isUserInteractionEnabled = false
     glass.clipsToBounds = true
     glass.layer.cornerRadius = cornerRadius
@@ -35,23 +40,30 @@ func applyChromeTextShadow(_ labels: [UILabel]) {
 
 // MARK: - PlayerInfoCardView
 
-/// AVKit's Info tab: a 250pt glass card with the poster, title, a two-line
-/// summary that opens in full on Select, a "Genre • runtime" line with badges,
-/// and the From Beginning action on the right.
 final class PlayerInfoCardView: UIView {
+
+    enum Layout {
+        case fixedPoster
+        case adaptiveArtwork
+    }
 
     struct Content {
         var posterURL: URL?
         var title: String
         var summary: String?
         var genre: String?
-        var runtimeMinutes: Int?
+        var runtime: String?
         var badges: [String]
         /// Replaces "Genre • runtime" (Live TV's channel and air time).
         var metaLine: [String]? = nil
         /// Channel logos are fitted, not cropped to the poster frame.
         var posterFits = false
         var showsFromBeginning = true
+        var layout: Layout = .fixedPoster
+        var fallbackPosterURLs: [URL] = []
+        var episodeLabel: String? = nil
+        var ageRating: String? = nil
+        var reviewRating: MediaRating? = nil
     }
 
     enum Metrics {
@@ -59,7 +71,8 @@ final class PlayerInfoCardView: UIView {
         static let radius: CGFloat = 48
         static let poster = CGRect(x: 23, y: 23, width: 136, height: 204)
         static let posterRadius: CGFloat = 25
-        static let textX: CGFloat = 199
+        static let artworkTextGap: CGFloat = 40
+        static let textX: CGFloat = poster.maxX + artworkTextGap
         static let titleTop: CGFloat = 33
         static let summaryTop: CGFloat = 80
         static let summaryWidth: CGFloat = 1003
@@ -74,25 +87,42 @@ final class PlayerInfoCardView: UIView {
     var onExpandSummary: ((UIView) -> Void)?
 
     private let posterView = UIImageView()
+    private let textColumn = UILayoutGuide()
+    private let layout: Layout
+    private lazy var posterWidth = posterView.widthAnchor.constraint(equalToConstant: Metrics.poster.width)
+    private lazy var textLeading = textColumn.leadingAnchor.constraint(
+        equalTo: posterView.trailingAnchor, constant: Metrics.artworkTextGap)
     private var posterTask: Task<Void, Never>?
+    private var genreTask: Task<Void, Never>?
+    private var ratingTask: Task<Void, Never>?
 
-    init(content: Content) {
+    init(content: Content, loadGenre: (@MainActor () async -> String?)? = nil,
+         loadRating: (@MainActor () async throws -> MediaRating?)? = nil,
+         loadArtwork: @escaping (URL) async -> UIImage? = { url in
+        await ImageCacheManager.shared.image(for: url)
+    }) {
+        layout = content.layout
         super.init(frame: .zero)
 
-        let glass = makePaneGlass(cornerRadius: Metrics.radius)
-        posterView.contentMode = content.posterFits ? .scaleAspectFit : .scaleAspectFill
+        let adaptive = layout == .adaptiveArtwork
+        let effect = adaptive ? makeVODCardGlassEffect() : TransportControlButton.glassEffect()
+        let glass = makePaneGlass(cornerRadius: Metrics.radius, effect: effect)
+        posterView.contentMode = adaptive || content.posterFits ? .scaleAspectFit : .scaleAspectFill
         posterView.clipsToBounds = true
         posterView.layer.cornerRadius = Metrics.posterRadius
         posterView.layer.cornerCurve = .continuous
-        posterView.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        posterView.backgroundColor = adaptive ? .clear : UIColor.white.withAlphaComponent(0.08)
+        if adaptive { posterWidth.priority = .init(999) }
 
         let title = UILabel()
         title.text = content.title
         title.font = .systemFont(ofSize: 31, weight: .bold)
         title.textColor = .white
 
-        let summary = PlayerSummaryButton(text: content.summary ?? "")
-        summary.isHidden = (content.summary ?? "").isEmpty
+        let summaryText = content.summary ?? ""
+        let summary = PlayerSummaryButton(text: summaryText, lines: adaptive ? 3 : 2,
+                                          style: adaptive ? .summary : .legacy)
+        summary.isHidden = summaryText.isEmpty
         summary.onPress = { [weak self, weak summary] in
             guard let summary else { return }
             self?.onExpandSummary?(summary)
@@ -102,14 +132,41 @@ final class PlayerInfoCardView: UIView {
         meta.axis = .horizontal
         meta.spacing = 12
         meta.alignment = .center
-        let words = content.metaLine ?? [content.genre, content.runtimeMinutes.map { String(localized: "\($0) min") }].compactMap { $0 }
-        if !words.isEmpty {
-            let label = UILabel()
-            label.text = words.joined(separator: " • ")
-            label.font = .systemFont(ofSize: 25, weight: .medium)
-            label.textColor = .white
-            meta.addArrangedSubview(label)
-            meta.setCustomSpacing(15, after: label)
+        let ageRating = content.ageRating?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let metadataWords = content.metaLine
+            ?? [content.genre, content.episodeLabel, content.runtime, ageRating].compactMap { $0 }.filter { !$0.isEmpty }
+        let metadataLabel = UILabel()
+        metadataLabel.text = metadataWords.joined(separator: " • ")
+        metadataLabel.isHidden = metadataWords.isEmpty
+        if content.genre == nil, content.metaLine == nil, let loadGenre {
+            genreTask = Task { [weak metadataLabel] in
+                guard !Task.isCancelled, let genre = await loadGenre(), !Task.isCancelled else { return }
+                metadataLabel?.text = ([genre] + metadataWords).joined(separator: " • ")
+                metadataLabel?.isHidden = false
+            }
+        }
+        metadataLabel.font = .systemFont(ofSize: 25, weight: .medium)
+        metadataLabel.textColor = .white
+        meta.addArrangedSubview(metadataLabel)
+        meta.setCustomSpacing(15, after: metadataLabel)
+        let initialRating = content.reviewRating
+        let score = initialRating.map { MediaDetailChromeView.scoreView($0, alpha: 1) }
+        if let score { meta.addArrangedSubview(score) }
+        if let loadRating {
+            ratingTask = Task { [weak meta, weak score] in
+                guard !Task.isCancelled else { return }
+                let rating: MediaRating?
+                do {
+                    rating = try await loadRating()
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, let meta, rating != initialRating else { return }
+                score?.removeFromSuperview()
+                if let rating {
+                    meta.insertArrangedSubview(MediaDetailChromeView.scoreView(rating, alpha: 1), at: 1)
+                }
+            }
         }
         for badge in content.badges {
             meta.addArrangedSubview(PlayerInfoBadgeView(text: badge, filled: MediaSource.filledBadges.contains(badge)))
@@ -123,8 +180,15 @@ final class PlayerInfoCardView: UIView {
             addSubview($0)
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
+        addLayoutGuide(textColumn)
+        let preferredHeight = heightAnchor.constraint(equalToConstant: Metrics.height)
+        let preferredMetadataTop = meta.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.metaTop)
+        if adaptive {
+            preferredHeight.priority = .defaultHigh - 1
+            preferredMetadataTop.priority = .defaultHigh - 1
+        }
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Metrics.height),
+            preferredHeight,
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             glass.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -132,88 +196,164 @@ final class PlayerInfoCardView: UIView {
 
             posterView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.poster.minX),
             posterView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.poster.minY),
-            posterView.widthAnchor.constraint(equalToConstant: Metrics.poster.width),
+            posterWidth,
             posterView.heightAnchor.constraint(equalToConstant: Metrics.poster.height),
 
-            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.textX),
+            textLeading,
+            textColumn.topAnchor.constraint(equalTo: topAnchor),
+            textColumn.bottomAnchor.constraint(equalTo: bottomAnchor),
+            textColumn.trailingAnchor.constraint(equalTo: action.leadingAnchor, constant: -40),
+            textColumn.widthAnchor.constraint(greaterThanOrEqualToConstant: 1),
+
+            title.leadingAnchor.constraint(equalTo: textColumn.leadingAnchor),
             title.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.titleTop),
             title.trailingAnchor.constraint(lessThanOrEqualTo: action.leadingAnchor, constant: -40),
 
-            summary.textLeading.constraint(equalTo: leadingAnchor, constant: Metrics.textX),
+            summary.textLeading.constraint(equalTo: textColumn.leadingAnchor),
             summary.textTop.constraint(equalTo: topAnchor, constant: Metrics.summaryTop),
-            summary.textWidth.constraint(equalToConstant: Metrics.summaryWidth),
+            adaptive ? summary.textWidth.constraint(equalTo: textColumn.widthAnchor)
+                : summary.textWidth.constraint(equalToConstant: Metrics.summaryWidth),
 
-            meta.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.textX),
-            meta.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.metaTop),
+            meta.leadingAnchor.constraint(equalTo: textColumn.leadingAnchor),
+            preferredMetadataTop,
 
             action.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.actionTrailing),
             action.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.actionTop),
             action.widthAnchor.constraint(equalToConstant: Metrics.actionWidth),
         ])
 
-        if let url = content.posterURL {
+        if adaptive {
+            NSLayoutConstraint.activate([
+                heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.height),
+                meta.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: Metrics.metaTop),
+                meta.topAnchor.constraint(greaterThanOrEqualTo: summary.bottomAnchor, constant: 3),
+                meta.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+                meta.trailingAnchor.constraint(lessThanOrEqualTo: textColumn.trailingAnchor),
+            ])
+            setArtwork(content.posterURL.flatMap { ImageCacheManager.shared.cachedImage(for: $0) })
+        }
+
+        let urls = [content.posterURL].compactMap { $0 } + content.fallbackPosterURLs
+        if !urls.isEmpty {
             posterTask = Task { [weak self] in
-                let image = await ImageCacheManager.shared.image(for: url)
-                guard let self, !Task.isCancelled else { return }
-                self.posterView.image = content.posterFits ? image?.legibleChannelLogo : image
+                for url in urls {
+                    let image = await loadArtwork(url)
+                    guard !Task.isCancelled else { return }
+                    guard let image, image.size.width > 0, image.size.height > 0 else { continue }
+                    self?.setArtwork(content.posterFits ? image.legibleChannelLogo : image)
+                    return
+                }
+                self?.setArtwork(nil)
             }
         }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    deinit { posterTask?.cancel() }
+    deinit {
+        posterTask?.cancel()
+        genreTask?.cancel()
+        ratingTask?.cancel()
+    }
+
+    func cancelMetadataLoads() {
+        genreTask?.cancel()
+        genreTask = nil
+        ratingTask?.cancel()
+        ratingTask = nil
+    }
+
+    private func setArtwork(_ image: UIImage?) {
+        posterView.image = image
+        guard layout == .adaptiveArtwork else { return }
+        let width = image.map { Metrics.poster.height * $0.size.width / $0.size.height } ?? 0
+        posterView.isHidden = width <= 0 || !width.isFinite
+        posterWidth.constant = posterView.isHidden ? 0 : width
+        textLeading.constant = posterView.isHidden ? 0 : Metrics.artworkTextGap
+        setNeedsLayout()
+    }
 }
 
-/// AVKit's expanding summary: two lines, a focus plate 12pt past the text,
-/// Select to read it all.
 final class PlayerSummaryButton: UIControl {
 
+    enum Style {
+        case legacy
+        case summary
+        case biography
+    }
+
     var onPress: (() -> Void)?
-    private let label = UILabel()
+    private let style: Style
+    private let textContent: UIView
     private let plate = UIView()
-    private let textHeight: NSLayoutConstraint
+    private var isTextTruncated = false
 
     // Anchors for the TEXT, which AVKit positions; the plate grows past it.
-    var textLeading: NSLayoutXAxisAnchor { label.leadingAnchor }
-    var textTop: NSLayoutYAxisAnchor { label.topAnchor }
-    var textWidth: NSLayoutDimension { label.widthAnchor }
+    var textLeading: NSLayoutXAxisAnchor { textContent.leadingAnchor }
+    var textTop: NSLayoutYAxisAnchor { textContent.topAnchor }
+    var textWidth: NSLayoutDimension { textContent.widthAnchor }
 
-    init(text: String, lines: Int = 2) {
-        // At most `lines` tall, so short text sits at the top with the plate hugging it.
-        textHeight = label.heightAnchor.constraint(lessThanOrEqualToConstant: CGFloat(lines) * 32)
+    init(text: String, lines: Int = 2, style: Style = .legacy) {
+        self.style = style
+        if style == .legacy {
+            let label = UILabel()
+            label.text = text
+            label.numberOfLines = lines
+            label.font = .systemFont(ofSize: 25, weight: .medium)
+            label.textColor = UIColor.white.withAlphaComponent(0.8)
+            textContent = label
+        } else {
+            textContent = PlayerSummaryTextView(text: text, lines: lines)
+        }
         super.init(frame: .zero)
-        label.text = text
-        label.numberOfLines = lines
-        label.font = .systemFont(ofSize: 25, weight: .medium)
-        label.textColor = UIColor.white.withAlphaComponent(0.8)
+        if style != .legacy { accessibilityLabel = text }
         plate.backgroundColor = .white
         plate.alpha = 0
         plate.layer.cornerRadius = 20
         plate.layer.cornerCurve = .continuous
         plate.isUserInteractionEnabled = false
-        [plate, label].forEach {
+        [plate, textContent].forEach {
             addSubview($0)
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         NSLayoutConstraint.activate([
-            textHeight,
-            plate.leadingAnchor.constraint(equalTo: label.leadingAnchor, constant: -12),
-            plate.trailingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12),
-            plate.topAnchor.constraint(equalTo: label.topAnchor, constant: -7),
-            plate.bottomAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
+            plate.leadingAnchor.constraint(equalTo: textContent.leadingAnchor, constant: -12),
+            plate.trailingAnchor.constraint(equalTo: textContent.trailingAnchor, constant: 12),
+            plate.topAnchor.constraint(equalTo: textContent.topAnchor, constant: -7),
+            plate.bottomAnchor.constraint(equalTo: textContent.bottomAnchor, constant: 8),
             leadingAnchor.constraint(equalTo: plate.leadingAnchor),
             trailingAnchor.constraint(equalTo: plate.trailingAnchor),
             topAnchor.constraint(equalTo: plate.topAnchor),
             bottomAnchor.constraint(equalTo: plate.bottomAnchor),
         ])
+        if style == .legacy {
+            textContent.heightAnchor.constraint(lessThanOrEqualToConstant: CGFloat(lines) * 32).isActive = true
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func setText(_ text: String) { label.text = text }
+    func setText(_ text: String) {
+        if let summary = textContent as? PlayerSummaryTextView {
+            summary.setText(text)
+            accessibilityLabel = text
+        } else {
+            (textContent as? UILabel)?.text = text
+        }
+        setNeedsLayout()
+    }
 
-    override var canBecomeFocused: Bool { true }
+    override var canBecomeFocused: Bool { style != .summary || isTextTruncated }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let summary = textContent as? PlayerSummaryTextView else { return }
+        summary.layoutIfNeeded()
+        let truncated = summary.isTextTruncated
+        guard truncated != isTextTruncated else { return }
+        isTextTruncated = truncated
+        if isFocused, !canBecomeFocused { setNeedsFocusUpdate() }
+    }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         for press in presses where press.type == .select {
@@ -305,7 +445,7 @@ final class PlayerPaneActionButton: UIControl {
     }
 }
 
-/// Outlined badge (rating, HD, CC) after the Info card's meta line.
+/// Format and accessibility badge after the Info card's meta line.
 private final class PlayerInfoBadgeView: UIView {
     init(text: String, filled: Bool = false) {
         super.init(frame: .zero)
@@ -348,14 +488,19 @@ final class PlayerDescriptionOverlayView: UIView {
         static let fade: TimeInterval = 0.24
     }
 
+    private let dimmingView = UIView()
     private let platter = UIView()
     private let textClip = UIView()
     private let scrollView = FocusableTextScrollView()
     private let label = UILabel()
     private let fadeMask = CAGradientLayer()
 
-    init(text: String) {
+    init(text: String, glassEffect: UIGlassEffect = TransportControlButton.glassEffect()) {
         super.init(frame: .zero)
+        dimmingView.backgroundColor = .black
+        dimmingView.alpha = 0
+        dimmingView.isUserInteractionEnabled = false
+        addSubview(dimmingView)
         label.text = text
         label.font = .systemFont(ofSize: 29, weight: .medium)
         label.textColor = .white
@@ -364,7 +509,7 @@ final class PlayerDescriptionOverlayView: UIView {
         scrollView.panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
         scrollView.addSubview(label)
         textClip.addSubview(scrollView)
-        let glass = makePaneGlass(cornerRadius: Metrics.radius)
+        let glass = makePaneGlass(cornerRadius: Metrics.radius, effect: glassEffect)
         glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         platter.addSubview(glass)
         platter.addSubview(textClip)
@@ -377,6 +522,7 @@ final class PlayerDescriptionOverlayView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        dimmingView.frame = bounds
         let textWidth = Metrics.width - Metrics.sideInset * 2
         let textHeight = ceil(label.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)
         let scrolls = textHeight + Metrics.verticalInset * 2 > Metrics.maxHeight
@@ -403,15 +549,15 @@ final class PlayerDescriptionOverlayView: UIView {
 
     func fadeIn() {
         UIView.animate(withDuration: Metrics.fade) {
-            self.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+            self.dimmingView.alpha = 0.5
             self.platter.alpha = 1
         }
     }
 
     func fadeOut(completion: @escaping () -> Void) {
         scrollView.isFocusable = false
-        UIView.animate(withDuration: Metrics.fade, animations: {
-            self.backgroundColor = .clear
+        UIView.animate(withDuration: Metrics.fade, delay: 0, options: .beginFromCurrentState, animations: {
+            self.dimmingView.alpha = 0
             self.platter.alpha = 0
         }, completion: { _ in completion() })
     }
@@ -755,11 +901,12 @@ final class PlayerDetailsPaneView: UIView {
     private var focusedColumn = 0
     private var tick: Timer?
 
-    init(media: [Section], statsProvider: (() -> AetherAdvancedStats?)?) {
+    init(media: [Section], statsProvider: (() -> AetherAdvancedStats?)?,
+         glassEffect: UIGlassEffect = TransportControlButton.glassEffect()) {
         self.media = media
         self.statsProvider = statsProvider
         super.init(frame: .zero)
-        let glass = makePaneGlass(cornerRadius: Metrics.radius)
+        let glass = makePaneGlass(cornerRadius: Metrics.radius, effect: glassEffect)
         scrollView.isScrollEnabled = false
         scrollView.clipsToBounds = true
         scrollView.showsHorizontalScrollIndicator = false

@@ -34,7 +34,7 @@ final class PlayerRailPanelView: UIView {
         static let buttonGap: CGFloat = 20.5
         /// Inset for free-form content. Menus (`CardTrackListView`) fill the platter.
         static let padding: CGFloat = 20
-        static let maxHeight: CGFloat = 560
+        static let maxHeight: CGFloat = 600
         static let screenMargin: CGFloat = 80
         /// AVKit grows the platter from 10% scale on this spring, both ways.
         static let collapsedScale: CGFloat = 0.1
@@ -74,16 +74,21 @@ final class PlayerRailPanelView: UIView {
 
     private let backgroundEffectView: UIVisualEffectView
     private let content: UIView
+    private lazy var maximumHeightConstraint = heightAnchor.constraint(lessThanOrEqualToConstant: Metrics.maxHeight)
     private var didDismiss = false
     private var springAnimator: UIViewPropertyAnimator?
+    private var fadeAnimator: UIViewPropertyAnimator?
+    private var outgoingSettingsPanel: PlayerRailPanelView?
+    var allowsSettingsMenuSwitch = false
+    weak var descriptionFocusOverlay: PlayerDescriptionOverlayView?
 
     /// An info pane (opened from a pill below the bar) rather than a popup.
     private(set) var isPane = false
     private weak var paneRail: PlayerRailView?
 
-    private init(content: UIView, style: Style = .popup) {
+    private init(content: UIView, style: Style = .popup, glassEffect: UIGlassEffect = TransportControlButton.glassEffect()) {
         self.content = content
-        backgroundEffectView = UIVisualEffectView(effect: TransportControlButton.glassEffect())
+        backgroundEffectView = UIVisualEffectView(effect: glassEffect)
         super.init(frame: .zero)
 
         backgroundEffectView.clipsToBounds = true
@@ -112,7 +117,7 @@ final class PlayerRailPanelView: UIView {
         }
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(lessThanOrEqualToConstant: Metrics.maxHeight),
+            maximumHeightConstraint,
 
             backgroundEffectView.topAnchor.constraint(equalTo: topAnchor),
             backgroundEffectView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -141,8 +146,11 @@ final class PlayerRailPanelView: UIView {
     /// Builds the popup in `container` above `button` (right edges aligned) and
     /// grows it in. Passing the rail as `button` anchors to its top-right.
     @discardableResult
-    static func present(content: UIView, width: CGFloat, in container: UIView, aboveRail rail: UIView, towards button: UIView) -> PlayerRailPanelView {
-        let panel = PlayerRailPanelView(content: content)
+    static func present(content: UIView, width: CGFloat, in container: UIView, aboveRail rail: UIView,
+                        towards button: UIView,
+                        slide: (outgoing: PlayerRailPanelView, offset: CGFloat)? = nil,
+                        glassEffect: UIGlassEffect = TransportControlButton.glassEffect()) -> PlayerRailPanelView {
+        let panel = PlayerRailPanelView(content: content, glassEffect: glassEffect)
         panel.sourceButton = button as? TransportControlButton
         panel.sourceButton?.showsMenu = true
         container.addSubview(panel)
@@ -161,12 +169,13 @@ final class PlayerRailPanelView: UIView {
         ])
         container.layoutIfNeeded()
 
-        panel.transform = panel.collapsedTransform
-        content.alpha = 0
-        panel.animate(toTransform: .identity, contentAlpha: 1, completion: nil)
-
-        container.setNeedsFocusUpdate()
-        container.updateFocusIfNeeded()
+        if let slide {
+            panel.slideIn(from: slide.outgoing, offset: slide.offset)
+        } else {
+            panel.animatePopup(isPresenting: true)
+            container.setNeedsFocusUpdate()
+            container.updateFocusIfNeeded()
+        }
 
         return panel
     }
@@ -274,6 +283,7 @@ final class PlayerRailPanelView: UIView {
     private var returnGuide: UIFocusGuide?
     /// The pane's close-on-Up stop, a subview of the rail.
     private var closeCatcher: UIView?
+    func isCloseFocusTarget(_ view: UIView) -> Bool { view === closeCatcher }
     private weak var tabPill: UIView?
 
     /// Where Up from the content goes: the tab's pill, or the sub-tab showing.
@@ -309,6 +319,7 @@ final class PlayerRailPanelView: UIView {
     /// dismissal side effects.
     private func removeWithoutDismissing() {
         didDismiss = true
+        (content as? PlayerInfoCardView)?.cancelMetadataLoads()
         removeFromSuperview()
     }
 
@@ -321,22 +332,105 @@ final class PlayerRailPanelView: UIView {
     }
 
     /// AVKit's two clocks: the platter springs, the content fades on a short curve.
-    private func animate(toTransform transform: CGAffineTransform, contentAlpha: CGFloat,
-                         clearsGlass: Bool = false, completion: (() -> Void)?) {
-        springAnimator?.stopAnimation(true)
-        let spring = UIViewPropertyAnimator(duration: Metrics.springDuration, timingParameters: Metrics.spring)
-        spring.addAnimations { self.transform = transform }
-        springAnimator = spring
-        spring.startAnimation()
+    private func animatePopup(isPresenting: Bool, completion: (() -> Void)? = nil) {
+        stopPopupAnimations()
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        let effect = backgroundEffectView.effect
+        if isPresenting {
+            content.alpha = 0
+            if reduceMotion { backgroundEffectView.effect = nil }
+        }
+        if reduceMotion {
+            transform = .identity
+        } else {
+            if isPresenting { transform = collapsedTransform }
+            let target = isPresenting ? CGAffineTransform.identity : collapsedTransform
+            let spring = UIViewPropertyAnimator(duration: Metrics.springDuration, timingParameters: Metrics.spring)
+            spring.addAnimations { self.transform = target }
+            springAnimator = spring
+            spring.startAnimation()
+        }
 
         // Completion rides the content fade, and closing clears the glass with
         // it: the shrunken platter otherwise sat on screen for the rest of the spring.
         let fade = UIViewPropertyAnimator(duration: Metrics.contentFade, timingParameters: Metrics.contentFadeCurve)
         fade.addAnimations {
-            self.content.alpha = contentAlpha
-            if clearsGlass { self.backgroundEffectView.effect = nil }
+            self.content.alpha = isPresenting ? 1 : 0
+            if reduceMotion || !isPresenting {
+                self.backgroundEffectView.effect = isPresenting ? effect : nil
+            }
         }
         fade.addCompletion { _ in completion?() }
+        fadeAnimator = fade
+        fade.startAnimation()
+    }
+
+    private func stopPopupAnimations() {
+        if springAnimator?.state == .active { springAnimator?.stopAnimation(true) }
+        if let fadeAnimator, fadeAnimator.state == .active {
+            fadeAnimator.stopAnimation(false)
+            fadeAnimator.finishAnimation(at: .current)
+        }
+        outgoingSettingsPanel?.removeFromSuperview()
+        outgoingSettingsPanel = nil
+    }
+
+    var visibleMenuHeight: CGFloat { layer.presentation()?.bounds.height ?? bounds.height }
+
+    func addMenuResize(from startHeight: CGFloat, to animator: UIViewPropertyAnimator) {
+        guard let menu = content as? CardTrackListView, let container = superview,
+              startHeight > 0, abs(bounds.height - startHeight) > 0.5 else { return }
+        let start = heightAnchor.constraint(equalToConstant: startHeight)
+        // Keep the prepared scroll viewport at its destination size behind the resizing clip.
+        UIView.performWithoutAnimation {
+            menu.layoutWithFixedMenuPageHeight {
+                maximumHeightConstraint.isActive = false
+                start.isActive = true
+                container.layoutIfNeeded()
+                start.isActive = false
+                maximumHeightConstraint.isActive = true
+            }
+        }
+        animator.addAnimations { [weak container] in container?.layoutIfNeeded() }
+    }
+
+    private func slideIn(from outgoing: PlayerRailPanelView, offset: CGFloat) {
+        let outgoingTransform = outgoing.layer.presentation()?.affineTransform() ?? outgoing.transform
+        let outgoingContentAlpha = outgoing.content.layer.presentation().map { CGFloat($0.opacity) } ?? outgoing.content.alpha
+        outgoing.stopPopupAnimations()
+        outgoing.didDismiss = true
+        outgoing.sourceButton?.showsMenu = false
+        outgoing.isUserInteractionEnabled = false
+        outgoingSettingsPanel = outgoing
+        outgoing.transform = outgoingTransform
+        outgoing.content.alpha = outgoingContentAlpha
+
+        let effect = backgroundEffectView.effect
+        backgroundEffectView.effect = nil
+        content.alpha = 0
+        if !UIAccessibility.isReduceMotionEnabled {
+            transform = CGAffineTransform(translationX: offset, y: 0)
+            let curve = UISpringTimingParameters(mass: 1, stiffness: 250, damping: 28, initialVelocity: .zero)
+            let spring = UIViewPropertyAnimator(duration: 0, timingParameters: curve)
+            spring.addAnimations {
+                self.transform = .identity
+            }
+            springAnimator = spring
+            spring.startAnimation()
+        }
+
+        let fade = UIViewPropertyAnimator(duration: Metrics.contentFade, timingParameters: Metrics.contentFadeCurve)
+        fade.addAnimations {
+            self.content.alpha = 1
+            self.backgroundEffectView.effect = effect
+            outgoing.content.alpha = 0
+            outgoing.backgroundEffectView.effect = nil
+        }
+        fade.addCompletion { [weak self, weak outgoing] _ in
+            outgoing?.removeFromSuperview()
+            self?.outgoingSettingsPanel = nil
+        }
+        fadeAnimator = fade
         fade.startAnimation()
     }
 
@@ -349,25 +443,35 @@ final class PlayerRailPanelView: UIView {
     }
 
     /// The tool button this menu opened from, greyed while it is up (AVKit).
-    private weak var sourceButton: TransportControlButton?
+    private(set) weak var sourceButton: TransportControlButton?
 
-    func dismissPanel() {
+    func settingsMenuSource(for focusedView: UIView) -> TransportControlButton? {
+        guard allowsSettingsMenuSwitch, !didDismiss, window != nil,
+              focusedView.isDescendant(of: self), let menu = content as? CardTrackListView,
+              menu.allowsSettingsMenuSwitch(from: focusedView) else { return nil }
+        return sourceButton
+    }
+
+    func dismissPanel(hidingControls: Bool = false) {
         guard !didDismiss else { return }
         didDismiss = true
+        (content as? PlayerInfoCardView)?.cancelMetadataLoads()
         sourceButton?.showsMenu = false
         isUserInteractionEnabled = false
         if isPane {
             let motion = Self.paneMotion()
-            paneRail?.setPaneLift(nil, motion: motion)
+            if !hidingControls { paneRail?.setPaneLift(nil, motion: motion) }
             motion.addAnimations {
-                self.transform = CGAffineTransform(translationX: 0, y: self.paneLift)
+                if !hidingControls {
+                    self.transform = CGAffineTransform(translationX: 0, y: self.paneLift)
+                }
                 self.alpha = 0
                 self.riders.forEach { $0.transform = .identity }
             }
             motion.addCompletion { [weak self] _ in self?.removeFromSuperview() }
             motion.startAnimation()
         } else {
-            animate(toTransform: collapsedTransform, contentAlpha: 0, clearsGlass: true) { [weak self] in
+            animatePopup(isPresenting: false) { [weak self] in
                 self?.removeFromSuperview()
             }
         }
@@ -391,7 +495,8 @@ final class PlayerRailPanelView: UIView {
         // While collapsing it is still on screen; keep focus from re-entering it.
         if didDismiss { return !(context.nextFocusedView?.isDescendant(of: self) ?? false) }
         guard window != nil else { return true }
-        if let next = context.nextFocusedView, next.isDescendant(of: self) {
+        if let next = context.nextFocusedView,
+           next.isDescendant(of: self) || descriptionFocusOverlay.map({ next.isDescendant(of: $0) }) == true {
             return true
         }
         // A pane shares focus with the pills (and sub-tabs) that switch it.

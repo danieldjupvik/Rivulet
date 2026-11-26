@@ -128,16 +128,25 @@ final class StubMediaProvider: MediaProvider, @unchecked Sendable {
     var resolveBitrates: [Int?] { callLock.withLock { recordedBitrates } }
     private func recordCall(_ call: String) { callLock.withLock { recordedCalls.append(call) } }
     /// Answers `fullDetail` per item when set.
-    var detailResultFor: (@Sendable (MediaItemRef) throws -> MediaItemDetail)?
+    var detailResultFor: (@Sendable (MediaItemRef) async throws -> MediaItemDetail)?
     func fullDetail(for itemRef: MediaItemRef) async throws -> MediaItemDetail {
         recordCall("detail(\(itemRef.itemID))")
-        if let detailResultFor { return try detailResultFor(itemRef) }
+        if let detailResultFor { return try await detailResultFor(itemRef) }
         guard let detailResult else { throw MediaProviderError.notFound }
         return detailResult
     }
     func playbackExtras(for itemRef: MediaItemRef, sourceID: String?) async -> PlaybackExtras {
         recordCall("extras(\(itemRef.itemID),\(sourceID ?? "nil"))")
         return extrasResult
+    }
+    var scrubPreviewSource: (any ScrubPreviewSource)?
+    func scrubPreviews(for itemRef: MediaItemRef, sourceID: String?) async -> (any ScrubPreviewSource)? {
+        scrubPreviewSource
+    }
+    var subtitleSearchHandler: (@Sendable (MediaItemRef, String) async throws -> [SubtitleSearchResult])?
+    func canSearchSubtitles() async -> Bool { subtitleSearchHandler != nil }
+    func searchSubtitles(for ref: MediaItemRef, language: String) async throws -> [SubtitleSearchResult] {
+        try await subtitleSearchHandler?(ref, language) ?? []
     }
     func continueWatching(limit: Int) async throws -> [MediaItem] {
         if let continueWatchingError { throw continueWatchingError }

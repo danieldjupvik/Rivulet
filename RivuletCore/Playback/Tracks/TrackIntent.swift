@@ -442,6 +442,7 @@ enum TrackIntentStore {
 
     // Current keys
     private static let subtitleKey = "trackIntent.subtitle"
+    private static let recentSubtitleLanguageKey = "trackIntent.recentSubtitleLanguage"
     private static let audioKey = "trackIntent.audio"
     private static let migratedKey = "trackIntent.migratedFromLegacy"
 
@@ -494,6 +495,31 @@ enum TrackIntentStore {
     static var subtitleIntent: SubtitleIntent? {
         get { storedData(subtitleKey).flatMap { try? JSONDecoder().decode(SubtitleIntent.self, from: $0) } }
         set { store(newValue, subtitleKey) }
+    }
+
+    static var recentSubtitleLanguage: String? {
+        migrateLegacyIfNeeded()
+        let decoder = JSONDecoder()
+        func recentLanguage(forKey key: String) -> String? {
+            defaults.data(forKey: key).flatMap { try? decoder.decode(String.self, from: $0) }
+        }
+        let recentKey = profileKey(recentSubtitleLanguageKey)
+        if let language = recentLanguage(forKey: recentKey) { return language }
+        if let data = defaults.data(forKey: profileKey(subtitleKey)) {
+            return (try? decoder.decode(SubtitleIntent.self, from: data))?.language
+        }
+        guard recentKey != recentSubtitleLanguageKey else { return nil }
+        return recentLanguage(forKey: recentSubtitleLanguageKey)
+            ?? defaults.data(forKey: subtitleKey).flatMap { try? decoder.decode(SubtitleIntent.self, from: $0) }?.language
+    }
+
+    static func saveSubtitlePick(_ track: MediaTrack?, audioLanguage: String?) {
+        let intent = SubtitleIntent.afterPick(track, replacing: effectiveSubtitleIntent, audioLanguage: audioLanguage)
+        let language = if let track { SubtitleLanguageOrdering.languageTag(for: track) } else { recentSubtitleLanguage }
+        if let language {
+            store(language, recentSubtitleLanguageKey)
+        }
+        subtitleIntent = intent
     }
 
     /// Whether the user has ever explicitly expressed a subtitle intent.
@@ -621,7 +647,7 @@ enum TrackIntentStore {
     /// Test seam: wipe all current + legacy keys.
     static func resetAll() {
         for key in [
-            subtitleKey, audioKey, migratedKey,
+            subtitleKey, recentSubtitleLanguageKey, audioKey, migratedKey,
             legacyAudioLanguageKey, legacyAudioJSONKey, legacyAudioMigratedKey,
             legacySubEnabledKey, legacySubLanguageKey, legacySubCodecKey,
             legacySubHIKey, legacySubJSONKey, legacySubMigratedKey

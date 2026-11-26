@@ -842,10 +842,7 @@ final class LiveTVAetherPlayerViewController: UIViewController {
     // MARK: - Chrome (glass rail + panels)
 
     private func setupZoomGesture() {
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleZoomDoubleTap))
-        doubleTap.numberOfTapsRequired = 2
-        doubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
-        doubleTap.allowedPressTypes = []
+        let doubleTap = SystemVideoZoomGestureRecognizer(target: self, action: #selector(handleZoomDoubleTap))
         view.addGestureRecognizer(doubleTap)
     }
 

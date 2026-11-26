@@ -35,10 +35,10 @@ final class InsightsPanelContainerView: UIView, RailPanelMenuHandling {
     private(set) var actorView: InsightsActorView?
     private let coordinator = InsightsActorLoadCoordinator()
     /// Backs the actor view only; list cards carry their own glass.
-    private let glass = makePaneGlass(cornerRadius: Metrics.radius)
+    private let glass = makePaneGlass(cornerRadius: Metrics.radius, effect: makeVODCardGlassEffect())
     private var state: State = .list
     /// Select on an actor's bio, with its whole text.
-    var onReadBio: ((String) -> Void)?
+    var onReadBio: ((String, UIView) -> Void)?
 
     init(
         cast: [MediaPerson],
@@ -94,7 +94,7 @@ final class InsightsPanelContainerView: UIView, RailPanelMenuHandling {
         let token = coordinator.begin()
 
         let actor = InsightsActorView(person: person)
-        actor.onReadBio = { [weak self] in self?.onReadBio?($0) }
+        actor.onReadBio = { [weak self] text, source in self?.onReadBio?(text, source) }
         actor.translatesAutoresizingMaskIntoConstraints = false
         actor.alpha = 0
         addSubview(actor)

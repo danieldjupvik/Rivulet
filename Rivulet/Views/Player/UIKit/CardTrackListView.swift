@@ -42,7 +42,7 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     }
 
     struct Row {
-        let title: String
+        var title: String
         let subtitle: String?
         let trackId: Int?
         let isSelected: Bool
@@ -55,12 +55,26 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     private let steppers: [CardStepperConfig]
     private let onSelect: (Int?) -> Void
     private let header: String
-    private let headerLabel = UILabel()
+    private struct MenuPage {
+        let view = UIView()
+        let header = UILabel()
+        let scroll = UIScrollView()
+        let rows = UIStackView()
+        let topConstraint: NSLayoutConstraint
+
+        init(in parent: UIView) {
+            topConstraint = view.topAnchor.constraint(equalTo: parent.topAnchor)
+        }
+    }
+
+    private lazy var page = MenuPage(in: self)
+    private weak var outgoingPage: UIView?
+    private var headerLabel: UILabel { page.header }
+    private var scrollView: UIScrollView { page.scroll }
+    private var stack: UIStackView { page.rows }
     /// The choice whose options are showing in place of the menu, AVKit's submenu.
     private var openChoice: Int?
     private weak var pendingFocus: UIView?
-    private let scrollView = UIScrollView()
-    private let stack = UIStackView()
     private var rowButtons: [CardTrackRowButton] = []
     /// The rows built from `rows` (tracks and Off), wherever they sit in the menu.
     private var trackButtons: [CardTrackRowButton] = []
@@ -68,8 +82,11 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     private let trackHeader: String?
     private var stepperRows: [CardStepperRowView] = []
     /// AVKit's Language submenu: the tracks, one level in from On and Off. Empty: tracks list in place.
-    private let languageRows: [Row]
-    private let languageValue: String?
+    private let languageTracks: [MediaTrack]
+    private let subtitleOnTrackId: Int?
+    private let recentSubtitleLanguage: (() -> String?)?
+    private var selectedLanguageTrackId: Int?
+    private var updatedTrackSubtitles: [Int: String] = [:]
     private var showsLanguages = false
     private weak var languageButton: CardTrackRowButton?
     /// Pin focus to the selected row only for the FIRST landing. After focus
@@ -104,21 +121,15 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     /// AVKit's subtitles menu: On and Off, then Language (the tracks) and Style one level in.
     /// `onTrackId` is what On turns on; nil leaves only Off.
     static func subtitleMenu(tracks: [MediaTrack], selectedTrackId: Int?, onTrackId: Int?,
+                             recentSubtitleLanguage: (() -> String?)? = nil,
                              actions: [CardActionConfig] = [], steppers: [CardStepperConfig] = [],
                              onSelect: @escaping (Int?) -> Void) -> CardTrackListView {
-        var rows = [Row(title: String(localized: "Off"), subtitle: nil, trackId: nil, isSelected: selectedTrackId == nil)]
-        var languageRows: [Row] = []
-        if let onTrackId {
-            rows.insert(Row(title: String(localized: "On"), subtitle: nil, trackId: onTrackId, isSelected: selectedTrackId != nil), at: 0)
-            languageRows = tracks.map {
-                Row(title: $0.subtitleMenuTitle, subtitle: $0.subtitleMenuSubtitle, trackId: $0.id,
-                    isSelected: $0.id == selectedTrackId)
-            }
-        }
-        let value = tracks.first { $0.id == (selectedTrackId ?? onTrackId) }?.subtitleMenuTitle
+        let rows = [Row(title: String(localized: "Off"), subtitle: nil, trackId: nil, isSelected: selectedTrackId == nil)]
         return CardTrackListView(header: String(localized: "Subtitles"), rows: rows, actions: actions,
                                  choices: [CardChoiceConfig.captionStyle()].compactMap { $0 },
-                                 steppers: steppers, languageRows: languageRows, languageValue: value,
+                                 steppers: steppers, languageTracks: onTrackId == nil ? [] : tracks,
+                                 subtitleOnTrackId: onTrackId, selectedLanguageTrackId: selectedTrackId,
+                                 recentSubtitleLanguage: recentSubtitleLanguage,
                                  onSelect: onSelect)
     }
 
@@ -146,11 +157,14 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     /// A plain list of choices: each row's `trackId` is what `onSelect` receives.
     init(header: String, rows: [Row], actions: [CardActionConfig] = [], choices: [CardChoiceConfig] = [],
          toggles: [CardToggleConfig] = [], steppers: [CardStepperConfig] = [],
-         trackHeader: String? = nil, languageRows: [Row] = [], languageValue: String? = nil,
+         trackHeader: String? = nil, languageTracks: [MediaTrack] = [], subtitleOnTrackId: Int? = nil,
+         selectedLanguageTrackId: Int? = nil, recentSubtitleLanguage: (() -> String?)? = nil,
          onSelect: @escaping (Int?) -> Void) {
         self.rows = rows
-        self.languageRows = languageRows
-        self.languageValue = languageValue
+        self.languageTracks = languageTracks
+        self.subtitleOnTrackId = subtitleOnTrackId
+        self.selectedLanguageTrackId = selectedLanguageTrackId
+        self.recentSubtitleLanguage = recentSubtitleLanguage
         self.trackHeader = trackHeader
         self.actions = actions
         self.choices = choices
@@ -167,14 +181,18 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     }
 
     private func setupViews() {
+        let content = page.view
+        content.translatesAutoresizingMaskIntoConstraints = false
+        clipsToBounds = true
+        addSubview(content)
         headerLabel.font = Metrics.secondaryFont
         headerLabel.textColor = Metrics.secondaryColor
-        addSubview(headerLabel)
+        content.addSubview(headerLabel)
 
         stack.axis = .vertical
         scrollView.addSubview(stack)
         scrollView.clipsToBounds = true
-        addSubview(scrollView)
+        content.addSubview(scrollView)
 
         [headerLabel, scrollView, stack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -188,16 +206,20 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
         scrollHeight.priority = .defaultHigh - 1
 
         NSLayoutConstraint.activate([
-            headerLabel.centerYAnchor.constraint(equalTo: topAnchor, constant: Metrics.headerLabelCenterY),
-            headerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.headerLabelLeading),
-            headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Metrics.headerLabelLeading),
+            page.topConstraint,
+            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+            headerLabel.centerYAnchor.constraint(equalTo: content.topAnchor, constant: Metrics.headerLabelCenterY),
+            headerLabel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.headerLabelLeading),
+            headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -Metrics.headerLabelLeading),
 
             // Starts focusGrowth early, with the rows that far down its content, so the
             // top row's focused pill isn't clipped by the scroll view.
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.headerHeight - Metrics.focusGrowth),
-            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: content.topAnchor, constant: Metrics.headerHeight - Metrics.focusGrowth),
+            scrollView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             scrollHeight,
 
             stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: Metrics.focusGrowth),
@@ -211,10 +233,12 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
 
     /// Change a track row in place (a download's progress, a pick that keeps the menu open).
     func updateTrack(_ trackId: Int, subtitle: String) {
+        updatedTrackSubtitles[trackId] = subtitle
         trackButtons.first { $0.row.trackId == trackId }?.setSubtitle(subtitle)
     }
 
     func checkTrack(_ trackId: Int?) {
+        selectedLanguageTrackId = trackId
         trackButtons.forEach { $0.isChecked = $0.row.trackId == trackId }
     }
 
@@ -223,6 +247,8 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
         rowButtons = []
         trackButtons = []
         stepperRows = []
+        pendingFocus = nil
+        lastFocusedControl = nil
         hasPinnedInitialFocus = false
         // The rows below are a different length; an offset left over from a long
         // list would sit past the end of a short one and show nothing.
@@ -234,15 +260,25 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
         }
         if showsLanguages {
             headerLabel.text = String(localized: "Language")
-            for row in languageRows { addTrackButton(row) }
+            for track in orderedLanguageTracks() {
+                addTrackButton(Row(title: track.subtitleMenuTitle,
+                                   subtitle: updatedTrackSubtitles[track.id] ?? track.subtitleMenuSubtitle,
+                                   trackId: track.id, isSelected: track.id == selectedLanguageTrackId))
+            }
             return
         }
         headerLabel.text = header
 
         // AVKit's subtitles menu: On, Off | Language, Style | actions | steppers.
-        if !languageRows.isEmpty {
-            buildTracks()
+        if let subtitleOnTrackId {
+            let onTrackId = selectedLanguageTrackId ?? subtitleOnTrackId
+            let enabled = selectedLanguageTrackId != nil
+            addTrackButton(Row(title: String(localized: "On"), subtitle: nil, trackId: onTrackId, isSelected: enabled))
+            addTrackButton(Row(title: String(localized: "Off"), subtitle: nil, trackId: nil, isSelected: !enabled))
+        }
+        if !languageTracks.isEmpty {
             stack.addArrangedSubview(MenuSeparatorView())
+            let languageValue = languageTracks.first { $0.id == (selectedLanguageTrackId ?? subtitleOnTrackId) }?.subtitleMenuTitle
             let language = CardTrackRowButton(row: Row(title: String(localized: "Language"), subtitle: languageValue,
                                                        trackId: nil, isSelected: false),
                                               showsChevron: true)
@@ -266,7 +302,7 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
             buildSteppers()
             return
         }
-        buildTracks()
+        if subtitleOnTrackId == nil { buildTracks() }
         buildActions()
         buildAdjustments()
         buildSteppers()
@@ -280,6 +316,7 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
         }
         for config in actions {
             let button = CardTrackRowButton(row: Row(title: config.title, subtitle: nil, trackId: nil, isSelected: false))
+            config.button = button
             button.onTap = { [weak button] in
                 guard let button else { return }
                 config.run(button)
@@ -350,15 +387,121 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
         }
         stack.addArrangedSubview(button)
         rowButtons.append(button)
-        if languageRows.isEmpty || showsLanguages { trackButtons.append(button) }
+        if languageTracks.isEmpty || showsLanguages { trackButtons.append(button) }
+    }
+
+    private func orderedLanguageTracks() -> [MediaTrack] {
+        guard let recentSubtitleLanguage else { return languageTracks }
+        return SubtitleLanguageOrdering.ordered(
+            languageTracks, preferredLanguages: Locale.preferredLanguages,
+            recentLanguage: recentSubtitleLanguage(), selectedTrackID: selectedLanguageTrackId,
+            lastTrackID: UniversalPlayerViewModel.generatedSubtitleId)
+    }
+
+    func returnToSubtitleMenu(afterSelecting trackId: Int?) -> Bool {
+        guard showsLanguages else { return false }
+        selectedLanguageTrackId = trackId
+        showLanguages(false)
+        return true
     }
 
     private func showLanguages(_ show: Bool) {
-        showsLanguages = show
-        buildRows()
-        if !show { pendingFocus = languageButton }
+        transitionMenuPage(forward: show) {
+            showsLanguages = show
+        } preferredRow: {
+            show ? (trackButtons.first(where: \.isChecked) ?? trackButtons.first) : languageButton
+        }
+    }
+
+    func layoutWithFixedMenuPageHeight(_ layout: () -> Void) {
+        let height = page.view.heightAnchor.constraint(equalToConstant: page.view.bounds.height)
+        page.topConstraint.isActive = false
+        height.isActive = true
+        layout()
+        height.isActive = false
+        page.topConstraint.isActive = true
+    }
+
+    private func transitionMenuPage(forward: Bool, update: () -> Void, preferredRow: () -> UIView?) {
         setNeedsFocusUpdate()
-        updateFocusIfNeeded()
+        scrollView.stopScrollingAndZooming()
+        outgoingPage?.removeFromSuperview()
+        let panel = superview as? PlayerRailPanelView
+        let outgoingHeight = panel?.visibleMenuHeight ?? bounds.height
+        let snapshot = window == nil ? nil : page.view.snapshotView(afterScreenUpdates: false)
+        let outgoingSize = page.view.bounds.size
+        UIView.performWithoutAnimation {
+            update()
+            page.view.removeFromSuperview()
+            page = MenuPage(in: self)
+            setupViews()
+            window?.layoutIfNeeded()
+            layoutIfNeeded()
+            let row = preferredRow()
+            let insets = scrollView.adjustedContentInset
+            let top = -insets.top
+            let bottom = max(top, scrollView.contentSize.height - scrollView.bounds.height + insets.bottom)
+            var offset = CGPoint(x: -insets.left, y: top)
+            if let row {
+                let frame = row.convert(row.bounds, to: scrollView)
+                let visibleBottom = top + scrollView.bounds.height - insets.bottom
+                if showsLanguages || frame.maxY + Metrics.focusGrowth > visibleBottom {
+                    let viewportCenter = (scrollView.bounds.height + insets.top - insets.bottom) / 2
+                    offset.y = min(bottom, max(top, frame.midY - viewportCenter))
+                }
+            }
+            scrollView.setContentOffset(offset, animated: false)
+            pendingFocus = row
+            setNeedsFocusUpdate()
+            updateFocusIfNeeded()
+            scrollView.stopScrollingAndZooming()
+            scrollView.setContentOffset(offset, animated: false)
+        }
+        guard let snapshot else { return }
+        snapshot.isUserInteractionEnabled = false
+        snapshot.accessibilityElementsHidden = true
+        snapshot.frame = CGRect(x: 0, y: bounds.height - outgoingSize.height,
+                                width: outgoingSize.width, height: outgoingSize.height)
+        snapshot.autoresizingMask = .flexibleTopMargin
+        insertSubview(snapshot, belowSubview: page.view)
+        outgoingPage = snapshot
+        animateMenuPage(from: snapshot, forward: forward, outgoingHeight: outgoingHeight)
+    }
+
+    private func animateMenuPage(from snapshot: UIView, forward: Bool, outgoingHeight: CGFloat) {
+        let duration: TimeInterval = 0.17
+        let incomingView = page.view
+        let incoming = incomingView.layer
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        if !reduceMotion {
+            let leadingSign: CGFloat = effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1
+            let distance = (forward ? leadingSign : -leadingSign) * bounds.width / 2
+            let timing = UISpringTimingParameters(mass: 1, stiffness: 400, damping: 50, initialVelocity: .zero)
+            let spring = UIViewPropertyAnimator(duration: 0, timingParameters: timing)
+            (superview as? PlayerRailPanelView)?.addMenuResize(from: outgoingHeight, to: spring)
+            incomingView.transform = CGAffineTransform(translationX: distance, y: 0)
+            spring.addAnimations {
+                incomingView.transform = .identity
+                snapshot.transform = CGAffineTransform(translationX: -distance, y: 0)
+            }
+            spring.startAnimation()
+        }
+        let fadeIn = CABasicAnimation(keyPath: "opacity")
+        fadeIn.fromValue = 0
+        fadeIn.toValue = 1
+        fadeIn.duration = duration
+        fadeIn.beginTime = incoming.convertTime(CACurrentMediaTime(), from: nil) + (reduceMotion ? 0 : 0.08)
+        fadeIn.fillMode = .backwards
+        fadeIn.timingFunction = CAMediaTimingFunction(controlPoints: 0.33, 0, 0.83, 0.83)
+        incoming.add(fadeIn, forKey: "submenuFade")
+        let fadeOut = UIViewPropertyAnimator(
+            duration: duration,
+            timingParameters: UICubicTimingParameters(controlPoint1: CGPoint(x: 0.33, y: 0),
+                                                       controlPoint2: CGPoint(x: 0.67, y: 1))
+        )
+        fadeOut.addAnimations { snapshot.alpha = 0 }
+        fadeOut.addCompletion { _ in snapshot.removeFromSuperview() }
+        fadeOut.startAnimation()
     }
 
     private func buildSubmenu(_ config: CardChoiceConfig) {
@@ -380,13 +523,18 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     /// selected option going in and on the choice's row coming back.
     private func showChoice(_ index: Int?) {
         let returning = openChoice
-        openChoice = index
-        buildRows()
-        if index == nil, let returning {
-            pendingFocus = rowButtons.first { $0.showsChevron && $0.row.title == choices[returning].title }
+        transitionMenuPage(forward: index != nil) {
+            openChoice = index
+        } preferredRow: {
+            if index == nil, let returning {
+                return rowButtons.first { $0.showsChevron && $0.row.title == choices[returning].title }
+            }
+            return rowButtons.first(where: \.isChecked) ?? rowButtons.first
         }
-        setNeedsFocusUpdate()
-        updateFocusIfNeeded()
+    }
+
+    func allowsSettingsMenuSwitch(from focusedView: UIView) -> Bool {
+        !stepperRows.contains { focusedView.isDescendant(of: $0) }
     }
 
     func handleMenuPress() -> Bool {
@@ -401,7 +549,6 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
 
     override var preferredFocusEnvironments: [UIFocusEnvironment] {
         if let pendingFocus {
-            self.pendingFocus = nil
             return [pendingFocus]
         }
         // After the first landing, hold the CURRENT row: when an edge press
@@ -422,6 +569,7 @@ final class CardTrackListView: UIView, RailPanelMenuHandling {
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         guard let next = context.nextFocusedView, next.isDescendant(of: self) else { return }
+        pendingFocus = nil
         if let row = rowButtons.first(where: { next.isDescendant(of: $0) || next === $0 }) {
             hasPinnedInitialFocus = true
             lastFocusedControl = row
@@ -534,10 +682,17 @@ extension CardChoiceConfig {
 
 // MARK: - CardActionConfig
 
-/// A row that runs `run`, which receives the row so it can retitle it.
-struct CardActionConfig {
-    let title: String
+final class CardActionConfig {
+    var title: String {
+        didSet { button?.setTitle(title) }
+    }
     let run: (CardTrackRowButton) -> Void
+    fileprivate weak var button: CardTrackRowButton?
+
+    init(title: String, run: @escaping (CardTrackRowButton) -> Void) {
+        self.title = title
+        self.run = run
+    }
 }
 
 // MARK: - CardToggleConfig
@@ -751,7 +906,7 @@ final class CardStepperRowView: UIControl {
 /// with it.
 final class CardTrackRowButton: UIControl {
 
-    let row: CardTrackListView.Row
+    private(set) var row: CardTrackListView.Row
     let showsChevron: Bool
     var onTap: (() -> Void)?
     var isChecked: Bool {
@@ -839,7 +994,10 @@ final class CardTrackRowButton: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setTitle(_ title: String) { titleLabel.text = title }
+    func setTitle(_ title: String) {
+        row.title = title
+        titleLabel.text = title
+    }
     func setSubtitle(_ subtitle: String) { subtitleLabel.text = subtitle }
 
     override func layoutSubviews() {

@@ -8,6 +8,7 @@
 //  The pause screen's text: pure functions, no view.
 //
 
+import Testing
 import XCTest
 @testable import Rivulet
 
@@ -146,5 +147,21 @@ final class PauseScreenContentTests: XCTestCase {
     func test_fittedSynopsis_firstSentenceTooLongKeepsItAll() {
         let text = "A very long first sentence. Short."
         XCTAssertEqual(PauseScreenText.fittedSynopsis(text, fits: { $0.count <= 5 }), text)
+    }
+}
+
+@MainActor
+struct PauseScreenEndTimeTests {
+    @Test(arguments: [(Float(0.5), 7200.0), (Float(2), 1800.0), (Float(0), 3600.0)])
+    func pauseEndTimeUsesWallClockTime(_ input: (Float, TimeInterval)) {
+        let (speed, wallTime) = input
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        var end: Date?
+        let line = PauseScreenText.timeLine(position: 1800, duration: 5400, playbackSpeed: speed, now: now) {
+            end = $0
+            return "8:30 PM"
+        }
+        #expect(end == now.addingTimeInterval(wallTime))
+        #expect(line == String(localized: "\(FolderRowDetail.length(3600)) left · Ends at \("8:30 PM")"))
     }
 }

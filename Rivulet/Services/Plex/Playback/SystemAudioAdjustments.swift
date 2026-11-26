@@ -11,7 +11,7 @@
 //  are system-wide, exactly as when changed from AVKit or Settings.
 //
 
-import Foundation
+import UIKit
 
 enum SystemAudioAdjustment: CaseIterable {
     case enhanceDialogue
@@ -168,4 +168,30 @@ final class SystemCaptionsOnMute {
 private extension UserDefaults {
     // KVO needs a property named exactly as the key.
     @objc nonisolated dynamic var isDisplayingCaptionsOnMute: Bool { bool(forKey: "isDisplayingCaptionsOnMute") }
+}
+
+/// AVKit reads Tap-to-Zoom Video from `com.apple.avkit`. An unavailable
+/// preference leaves zoom enabled, and returning from Settings refreshes it.
+final class SystemVideoZoomGestureRecognizer: UITapGestureRecognizer {
+    private let suiteName: String
+
+    init(target: Any?, action: Selector?, suiteName: String = "com.apple.avkit") {
+        self.suiteName = suiteName
+        super.init(target: target, action: action)
+        numberOfTapsRequired = 2
+        allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
+        allowedPressTypes = []
+        refreshPreference()
+        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidBecomeActive(_:)),
+                                               name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func applicationDidBecomeActive(_ notification: Notification) {
+        refreshPreference()
+    }
+
+    private func refreshPreference() {
+        let enabled = UserDefaults(suiteName: suiteName)?.object(forKey: "AVKitTapToZoomEnabled") as? Bool ?? true
+        if isEnabled != enabled { isEnabled = enabled }
+    }
 }

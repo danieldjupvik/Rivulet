@@ -16,6 +16,7 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
     let name: String
     let language: String?
     let languageCode: String?
+    let languageTag: String?
     let codec: String?
     let isDefault: Bool
     let isForced: Bool
@@ -65,6 +66,7 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
         name: String,
         language: String? = nil,
         languageCode: String? = nil,
+        languageTag: String? = nil,
         codec: String? = nil,
         isDefault: Bool = false,
         isForced: Bool = false,
@@ -83,6 +85,7 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
         self.name = name
         self.language = language
         self.languageCode = languageCode
+        self.languageTag = languageTag
         self.codec = codec
         self.isDefault = isDefault
         self.isForced = isForced
@@ -104,6 +107,7 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
         self.name = stream.displayTitle ?? stream.title ?? stream.language ?? String(localized: "Track \(stream.id)")
         self.language = stream.language
         self.languageCode = stream.languageCode
+        self.languageTag = stream.languageTag
         self.codec = stream.codec
         self.isDefault = stream.default ?? false
         self.isForced = stream.forced ?? false
@@ -128,6 +132,7 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
         self.name = track.title ?? track.language ?? String(localized: "Track \(track.id)")
         self.language = track.language
         self.languageCode = track.language
+        self.languageTag = nil
         self.codec = track.codec
         self.isDefault = track.isDefault
         self.isForced = track.isForced
@@ -149,6 +154,7 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
         self.name = track.title ?? track.language ?? String(localized: "Track \(track.id)")
         self.language = track.language
         self.languageCode = track.language
+        self.languageTag = nil
         self.codec = track.codec
         self.isDefault = track.isDefault
         self.isForced = track.isForced
@@ -235,7 +241,15 @@ nonisolated struct MediaTrack: Identifiable, Equatable, Sendable {
             leftover = leftover.replacingOccurrences(of: word, with: "")
         }
         let described = leftover.contains { $0.isLetter || $0.isNumber } ? title : nil
-        return (flags + [described, codec == nil ? nil : formattedCodec]).compactMap { $0 }.joined(separator: " • ")
+        let external = isExternal || subtitleKey != nil
+        let format: String? = if codec == nil {
+            external ? String(localized: "External") : nil
+        } else if external {
+            String(localized: "\(formattedCodec) External")
+        } else {
+            formattedCodec
+        }
+        return (flags + [described, format]).compactMap { $0 }.joined(separator: " • ")
     }
 
     /// Formatted codec name (e.g., "AAC", "TrueHD", "DTS-HD MA")

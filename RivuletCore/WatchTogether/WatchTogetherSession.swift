@@ -54,6 +54,7 @@ final class WatchTogetherSession: ObservableObject {
     @Published private(set) var members: [Member] = []
     @Published private(set) var isHost = false
     @Published private(set) var isReconnecting = false
+    @Published private(set) var nominalPlaybackRate: Float?
     /// A sentence for the screen: who joined, who paused, why a press did nothing.
     let notices = PassthroughSubject<String, Never>()
 
@@ -204,6 +205,7 @@ final class WatchTogetherSession: ObservableObject {
         members = []
         isHost = false
         isReconnecting = false
+        nominalPlaybackRate = nil
         onRoleChange?()
     }
 
@@ -211,6 +213,8 @@ final class WatchTogetherSession: ObservableObject {
 
     private func apply(_ state: PartyState<WatchTogetherItem>) {
         code = state.room.flatMap { try? formatCode($0.code) }
+        let rate = state.room.map { Float($0.rate) }
+        if nominalPlaybackRate != rate { nominalPlaybackRate = rate }
         isReconnecting = state.connection == .reconnecting
         members = (state.room?.participants ?? []).map { Self.member($0, me: state.peerId) }
         if state.isHost != isHost {

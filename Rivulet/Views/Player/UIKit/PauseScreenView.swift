@@ -53,11 +53,10 @@ final class PauseScreenView: UIView {
         static let rise: CGFloat = 16
     }
 
-    /// Position and duration, read on show and on each minute tick ("Ends at" moves with the clock).
-    var progress: () -> (position: TimeInterval, duration: TimeInterval) = { (0, 0) }
+    /// Playback progress and speed, read on show and on each minute tick.
+    var progress: () -> (position: TimeInterval, duration: TimeInterval, speed: Float) = { (0, 0, 1) }
 
-    /// The picture treatment's fade in, spanning the info lines' staggered entrance;
-    /// the container fades its paused dim out on the same clock.
+    /// The picture treatment's fade in, spanning the info lines' staggered entrance.
     static let fadeDuration: TimeInterval = 1.5
 
     private(set) var isShowing = false
@@ -295,10 +294,11 @@ final class PauseScreenView: UIView {
         logoWidth.constant = height * aspect
     }
 
-    private func refreshTime() {
-        clockLabel.text = Date().formatted(date: .omitted, time: .shortened)
-        let (position, duration) = progress()
-        let line = PauseScreenText.timeLine(position: position, duration: duration, now: Date())
+    func refreshTime() {
+        let now = Date()
+        clockLabel.text = now.formatted(date: .omitted, time: .shortened)
+        let (position, duration, speed) = progress()
+        let line = PauseScreenText.timeLine(position: position, duration: duration, playbackSpeed: speed, now: now)
         timeLabel.text = line
         timeRow.isHidden = line == nil
         miniFillWidth.constant = Metrics.miniBar.width * PauseScreenText.progress(position: position, duration: duration)

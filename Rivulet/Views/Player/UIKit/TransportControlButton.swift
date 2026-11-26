@@ -99,6 +99,10 @@ final class TransportControlButton: UIControl {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func setGlassEffect(_ effect: UIGlassEffect) {
+        backgroundEffectView.effect = effect
+    }
+
     /// Swap the glyph (e.g. the content-filter toggle reflecting on/off).
     /// Keeps the current tint so focus styling is preserved.
     func setIcon(_ image: UIImage?) {
