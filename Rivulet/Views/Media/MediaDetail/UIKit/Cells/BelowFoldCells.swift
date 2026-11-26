@@ -61,7 +61,7 @@ final class EpisodeCollectionCell: UICollectionViewCell {
 
     /// Search's row tile: the rail's card with its description, as tall as the rail's.
     static let searchTile = MediaRowMetrics.Tile(
-        art: CGSize(width: EpisodeCell.cardWidth, height: EpisodeCell.thumbHeight + 190), growth: .zero)
+        art: CGSize(width: EpisodeCell.cardWidth, height: EpisodeCell.thumbHeight + EpisodeCell.textBlockHeight), growth: .zero)
 
     /// Trailers render with the SAME episode card so the two rows match exactly.
     func configure(trailer: BelowFoldTrailer) {
@@ -296,9 +296,9 @@ final class CastCollectionCell: UICollectionViewCell {
 
 final class BelowFoldSectionHeader: UICollectionReusableView {
     static let reuseID = "BelowFoldSectionHeader"
-    /// Baseline above the first row's frame top, measured on device (tvOS 27): a card
-    /// frame carries 20 of focus reserve, so the artwork sits 34.5 below. Cast circles have none beyond 20 above.
-    static let cardBaseline: CGFloat = 14.5
+    /// Baseline above the header's bottom, which sits 8 above a card row's frame (negative: below it).
+    /// Apple's rests 21 above the artwork, 20 under the frame top (tvOS 27, Ted Lasso and F1 on device).
+    static let cardBaseline: CGFloat = -7
     static let castBaseline: CGFloat = 41.5
     private let titleLabel = UILabel()
     private var baselineConstraint: NSLayoutConstraint!
@@ -307,7 +307,7 @@ final class BelowFoldSectionHeader: UICollectionReusableView {
         super.init(frame: frame)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = MediaRowMetrics.headerFont
-        titleLabel.textColor = MediaRowMetrics.headerColor
+        titleLabel.textColor = MediaRowMetrics.pageHeaderColor
         addSubview(titleLabel)
         baselineConstraint = titleLabel.lastBaselineAnchor.constraint(equalTo: bottomAnchor, constant: -Self.cardBaseline)
         NSLayoutConstraint.activate([
@@ -322,6 +322,22 @@ final class BelowFoldSectionHeader: UICollectionReusableView {
     func configure(title: String, baseline: CGFloat = BelowFoldSectionHeader.cardBaseline) {
         titleLabel.text = title
         baselineConstraint.constant = -baseline
+    }
+
+    /// The title's text, not the label's full width.
+    var textFrame: CGRect {
+        CGRect(origin: titleLabel.frame.origin,
+               size: CGSize(width: titleLabel.intrinsicContentSize.width, height: titleLabel.frame.height))
+    }
+
+    /// How far the title sits above its rest, over a focused card (`BelowFoldCollectionView.updateHeaderLift`).
+    var lift: CGFloat = 0 {
+        didSet { titleLabel.transform = CGAffineTransform(translationX: 0, y: -lift) }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        lift = 0
     }
 }
 

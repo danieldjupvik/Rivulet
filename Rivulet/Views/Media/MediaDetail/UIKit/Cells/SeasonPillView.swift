@@ -127,12 +127,10 @@ final class SeasonPillView: UIControl {
     }
 
     private func applyStyle() {
-        let anotherPillFocused = superview?.subviews.contains {
-            guard let pill = $0 as? SeasonPillView else { return false }
-            return pill !== self && pill.isFocusedPill
-        } ?? false
-        applyStyle(anotherPillFocused: anotherPillFocused)
-    }
+        // Matches the ATV+ reference: the active season is a bright frosted
+        // capsule even when focus is currently on an episode. Focus can scale
+        // that same capsule, but selection owns the visible chip.
+        label.font = .systemFont(ofSize: 29, weight: (isFocusedPill || isSelectedSeason) ? .semibold : .medium)
 
     private func applyStyle(anotherPillFocused: Bool) {
         let fill: UIColor
@@ -145,7 +143,7 @@ final class SeasonPillView: UIControl {
             textColor = .label
         } else {
             fill = .clear
-            textColor = .secondaryLabel
+            textColor = UIColor.white.withAlphaComponent(0.52)
         }
         capsuleBackground.backgroundColor = fill
         label.textColor = textColor
