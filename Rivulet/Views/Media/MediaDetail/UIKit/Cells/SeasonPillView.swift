@@ -63,16 +63,14 @@ final class SeasonPillView: UIControl {
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 30),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -30),
+            // Capsule padding. The capsule's LEFT edge sits on the shared content
+            // edge (the row leading); the text is naturally indented inside it.
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 32),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -32),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             // Measured on device (tvOS 27): 66 tall, radius 33.
             heightAnchor.constraint(equalToConstant: 66),
         ])
-        updateFont()
-        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: SeasonPillView, _) in
-            self.updateFont()
-        }
         applyStyle()
     }
 
@@ -112,13 +110,6 @@ final class SeasonPillView: UIControl {
         }
     }
 
-    private func updateFont() {
-        let descriptor = UIFont.preferredFont(forTextStyle: .body).fontDescriptor.addingAttributes([
-            .traits: [UIFontDescriptor.TraitKey.weight: UIFont.Weight.semibold],
-        ])
-        label.font = UIFont(descriptor: descriptor, size: 0)
-    }
-
     private func updateTransforms() {
         let widthScale = isFocusedPill && bounds.width > 0 ? (bounds.width + 8) / bounds.width : 1
         let heightScale = isFocusedPill && bounds.height > 0 ? (bounds.height + 8) / bounds.height : 1
@@ -127,20 +118,28 @@ final class SeasonPillView: UIControl {
     }
 
     private func applyStyle() {
+        let anotherPillFocused = superview?.subviews.contains {
+            guard let pill = $0 as? SeasonPillView else { return false }
+            return pill !== self && pill.isFocusedPill
+        } ?? false
+        applyStyle(anotherPillFocused: anotherPillFocused)
+    }
+
+    private func applyStyle(anotherPillFocused: Bool) {
         // Matches the ATV+ reference: the active season is a bright frosted
         // capsule even when focus is currently on an episode. Focus can scale
         // that same capsule, but selection owns the visible chip.
         label.font = .systemFont(ofSize: 29, weight: (isFocusedPill || isSelectedSeason) ? .semibold : .medium)
 
-    private func applyStyle(anotherPillFocused: Bool) {
         let fill: UIColor
         let textColor: UIColor
         if isFocusedPill {
             fill = UIColor.white.withAlphaComponent(0.88)
             textColor = .black
         } else if isSelectedSeason && !anotherPillFocused {
+            // Selected but unfocused: translucent grey, white text.
             fill = UIColor.white.withAlphaComponent(0.35)
-            textColor = .label
+            textColor = .white
         } else {
             fill = .clear
             textColor = UIColor.white.withAlphaComponent(0.52)

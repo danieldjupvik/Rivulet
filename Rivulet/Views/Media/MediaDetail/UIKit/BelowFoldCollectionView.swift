@@ -63,6 +63,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
 
     /// contentOffset.y + adjustedContentInset.top (0 at rest, grows as scrolled).
     var onScroll: ((CGFloat) -> Void)?
+    var onDetailsTopChanged: (() -> Void)?
     private var lowerRowsOffset: CGFloat = 0
     /// Fires when focus lands on an episode cell (the episode), or nil for any
     /// other cell / focus leaving. Drives season-pill tracking in the container.
@@ -132,6 +133,14 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
 
         collectionView = FocusScrollControlledCollectionView(frame: bounds, collectionViewLayout: makeLayout())
         collectionView.topBand = detailsTopY
+        collectionView.onFocusScrollRequest = { [weak self] target in
+            guard let self, self.offsetLink != nil else { return false }
+            let activeTarget = CGFloat((self.offsetMotion?.target ?? .infinity) / self.offsetMotionScale)
+            if self.collectionView.focusedCellIsTopSection
+                || abs(target - activeTarget) < 1 { return true }
+            self.cancelSlide()
+            return false
+        }
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
         collectionView.delegate = self
@@ -202,6 +211,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         collectionView.topBand = topInset
         collectionView.collectionViewLayout.invalidateLayout()
         collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+        onDetailsTopChanged?()
     }
 
     private func makeLayout() -> UICollectionViewCompositionalLayout {
@@ -257,16 +267,13 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
                     sectionBottomInset: isPrimary ? 36 : 56
                 )
             case .cast:
-                let headerTopInset: CGFloat = 46
                 return self.shelfSection(
                     itemW: Self.castWidth,
                     itemH: 355,
                     gap: MediaRowMetrics.tileGap,   // six across on the grid, the seventh peeking
                     header: true,
-                    // Primary on a title with no extras or related: same peek,
-                    // less the header gap, so the strip is the cast row.
-                    topInset: isPrimary ? max(0, peek - 16) : 0,
-                    // The header reserves its own height, so the circles rest 41.5 below its baseline.
+                    // When Cast leads, use the full peek so the slide and focus land at the same offset.
+                    topInset: isPrimary ? peek : 0,
                     headerTopInset: 0,
                     headerHeight: 72,
                     headerBaseline: BelowFoldSectionHeader.castBaseline
@@ -1120,29 +1127,17 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
                            completion: (() -> Void)? = nil) {
         // Scroll so the first episode lands at detailsTopY — which is the focus
         // engine's preferred position (contentInset.top == detailsTopY), so
-        // handing focus in afterward causes no re-scroll bounce.
+        // focus entry and the slide share the same target.
         let targetY = max(0, bounds.height - Self.episodePeek - 2 * detailsTopY)
-        guard animated else {
-            cancelSlide()
-            setOffsetY(targetY)
-            completion?()
-            return
-        }
-        animateOffsetY(to: targetY, duration: 0.6, completion: completion)
+        animateOffsetY(to: targetY, animated: animated, travelDistance: travelDistance,
+                       onReadyForFocus: onReadyForFocus, completion: completion)
     }
 
     /// Reverse of slideToDetailsTop: slide the episodes back down to the hero
     /// peek rest (drives the reverse choreography). Completion fires at the end.
     func slideToHeroRest(animated: Bool, travelDistance: CGFloat? = nil, completion: (() -> Void)? = nil) {
         collectionView.cancelFocusScroll()
-        let targetY = -detailsTopY
-        guard animated else {
-            cancelSlide()
-            setOffsetY(targetY)
-            completion?()
-            return
-        }
-        animateOffsetY(to: targetY, duration: 0.6, completion: completion)
+        animateOffsetY(to: -detailsTopY, animated: animated, travelDistance: travelDistance, completion: completion)
     }
 
     // MARK: - One-clock vertical scroll (CADisplayLink)
@@ -1236,7 +1231,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         setOffsetY(finished ? CGFloat(motion.target / offsetMotionScale) : (position * scale).rounded() / scale)
         guard offsetLink === link, offsetRequest == request else { return }
         let remaining = abs(motion.target - motion.position) / offsetMotionScale
-        let focusRoom = max(0, bounds.height - Self.detailsTopY - max(EpisodeCell.thumbHeight, EpisodeCell.trailerThumbHeight))
+        let focusRoom = max(0, bounds.height - detailsTopY - max(EpisodeCell.thumbHeight, EpisodeCell.trailerThumbHeight))
         if remaining <= Double(focusRoom) {
             let ready = offsetFocusReady
             offsetFocusReady = nil

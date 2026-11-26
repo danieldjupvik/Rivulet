@@ -380,6 +380,10 @@ final class ExpandedDetailContainerView: UIView {
         belowFoldCollection.onScroll = { [weak self] off in
             self?.driveScrollProgress(fromCollectionOffset: off)
         }
+        belowFoldCollection.onDetailsTopChanged = { [weak self] in
+            guard let self, !self.belowFoldScrollActive else { return }
+            self.applyHeroProgress(fromOffset: 0)
+        }
         belowFoldCollection.onSelectSynopsis = { [weak self] d in self?.onSelectSynopsis?(d) }
         belowFoldCollection.onSelectAdvisory = { [weak self] a in self?.onSelectAdvisory?(a) }
 
@@ -410,9 +414,9 @@ final class ExpandedDetailContainerView: UIView {
     private func applyHeroProgress(fromOffset off: CGFloat) {
         scrollOffset = off
         smallTitleLogo.alpha = belowFoldTitleOpacity
-        seasonsHeader.alpha = scrollProgress
+        seasonsHeader.alpha = belowFoldTitleOpacity
         belowFoldCollection.firstHeaderAlpha = scrollProgress
-        // The logo and pills ride the rail's offset past its details rest, inside the scroll animation.
+        // Past details rest, the logo and pills move with the rail.
         let dy = belowFoldCollection.detailsRestOff - off
         let titleY = dy > 0 ? dy * heroTravelDistance / max(1, belowFoldCollection.detailsRestOff) : dy
         seasonsHeader.transform = CGAffineTransform(translationX: 0, y: dy)
@@ -497,7 +501,7 @@ final class ExpandedDetailContainerView: UIView {
         episodesTopConstraint.constant = Self.peekTopGap
         layoutIfNeeded()
         smallTitleLogo.alpha = belowFoldTitleOpacity
-        seasonsHeader.alpha = scrollProgress
+        seasonsHeader.alpha = belowFoldTitleOpacity
         belowFoldCollection.firstHeaderAlpha = scrollProgress
         onScrollProgress?(scrollProgress)
     }
