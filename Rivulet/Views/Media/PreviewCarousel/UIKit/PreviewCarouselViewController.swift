@@ -1361,10 +1361,7 @@ final class PreviewCarouselViewController: UIViewController {
         updateFocusIfNeeded()
         expandedDetail.belowFoldCollection.slideToHeroRest(
             animated: true, travelDistance: expandedDetail.heroTravelDistance) { [weak self] in
-            guard let self else { return }
-            self.expandedDetail.setBelowFoldScrollActive(false)
-            self.setNeedsFocusUpdate()
-            self.updateFocusIfNeeded()
+            self?.expandedDetail.setBelowFoldScrollActive(false)
         }
     }
 
