@@ -109,6 +109,7 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
     /// fires once when its snapshot is in, so the host's fade waits for content.
     private(set) var isLoadingEpisodes = false
     var onEpisodesApplied: (() -> Void)?
+    var onLateInitialEpisodeReady: (() -> Void)?
 
     private var episodesByID: [String: MediaItem] = [:]
     private var trailersByID: [String: BelowFoldTrailer] = [:]
@@ -579,6 +580,10 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
             // The load can finish after the user entered the rail; don't move it under them.
             if self.collectionView.focusedEpisodeIndexPath == nil {
                 self.scrollToInitialEpisode(item: content.initialEpisode ?? item)
+                if self.offsetFocusReady == nil, let target = self.pendingInitialFocus,
+                   self.realizedFocusTarget(target, in: self.collectionView) != nil {
+                    self.onLateInitialEpisodeReady?()
+                }
             }
             self.loadRatings(token: token)
             // Chained after ingest, which would otherwise overwrite it with the partial detail.

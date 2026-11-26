@@ -254,6 +254,15 @@ final class PreviewCarouselViewController: UIViewController {
         expandedDetail.onScrollProgress = { [weak self] progress in
             self?.driveHeroLayers(progress)
         }
+        expandedDetail.belowFoldCollection.onLateInitialEpisodeReady = { [weak self] in
+            guard let self, self.state.phase == .detailsStable, self.expandedDetail.isUserInteractionEnabled,
+                  self.presentedViewController == nil, let window = self.view.window,
+                  let focusSystem = UIFocusSystem.focusSystem(for: window) else { return }
+            let focused = focusSystem.focusedItem
+            guard focused == nil || focused === self.focusAnchor else { return }
+            self.setNeedsFocusUpdate()
+            self.updateFocusIfNeeded()
+        }
         expandedDetail.onSelectSynopsis = { [weak self] detail in
             guard let self else { return }
             let content = InfoPopupContent.description(
@@ -1357,11 +1366,19 @@ final class PreviewCarouselViewController: UIViewController {
             .setChromeActionRowFocusable(true)
         // Keep the hero coupled to collection scrolling until the return slide ends.
         expandedDetail.setBelowFoldInteractive(false)
-        setNeedsFocusUpdate()
-        updateFocusIfNeeded()
+        let animated = !UIAccessibility.isReduceMotionEnabled
+        if animated {
+            setNeedsFocusUpdate()
+            updateFocusIfNeeded()
+        }
         expandedDetail.belowFoldCollection.slideToHeroRest(
-            animated: true, travelDistance: expandedDetail.heroTravelDistance) { [weak self] in
-            self?.expandedDetail.setBelowFoldScrollActive(false)
+            animated: animated, travelDistance: expandedDetail.heroTravelDistance) { [weak self] in
+            guard let self else { return }
+            self.expandedDetail.setBelowFoldScrollActive(false)
+            if !animated {
+                self.setNeedsFocusUpdate()
+                self.updateFocusIfNeeded()
+            }
         }
     }
 
