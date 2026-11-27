@@ -1107,31 +1107,7 @@ final class MediaDetailChromeView: UIView {
     static func scoreAndAgeViews(ratings: [MediaRating], age: String?, alpha: CGFloat) -> [UIView] {
         var views: [UIView] = []
         if let rating = MediaRating.detailRating(in: ratings) {
-            let label = makeCaptionLabel(rating.badgeText, alpha: alpha)
-            let ratingStack: UIStackView
-            let emoji: String? = switch rating.source {
-            case .rottenTomatoes: rating.value >= 6 ? "🍅" : "🤢"
-            case .rottenTomatoesAudience: "🍿"
-            // Jellyfin and Emby's community rating: a star, as their own apps draw it.
-            case .unknown: "⭐"
-            default: nil
-            }
-            if let emoji {
-                let glyph = UIImageView(image: emojiGlyph(emoji))
-                glyph.translatesAutoresizingMaskIntoConstraints = false
-                NSLayoutConstraint.activate([
-                    glyph.widthAnchor.constraint(equalToConstant: 20),
-                    glyph.heightAnchor.constraint(equalToConstant: 20)
-                ])
-                ratingStack = UIStackView(arrangedSubviews: [glyph, label])
-                ratingStack.spacing = 2
-            } else {
-                ratingStack = UIStackView(arrangedSubviews: [makeCaptionLabel(rating.name, alpha: alpha), label])
-                ratingStack.spacing = 6
-            }
-            ratingStack.axis = .horizontal
-            ratingStack.alignment = .center
-            views.append(ratingStack)
+            views.append(scoreView(rating, alpha: alpha))
         }
         if let age {
             let seal = UIImageView(image: UIImage(systemName: "checkmark.circle"))
@@ -1149,6 +1125,33 @@ final class MediaDetailChromeView: UIView {
             views.append(ageStack)
         }
         return views
+    }
+
+    static func scoreView(_ rating: MediaRating, alpha: CGFloat) -> UIStackView {
+        let label = makeCaptionLabel(rating.badgeText, alpha: alpha)
+        let ratingStack: UIStackView
+        let emoji: String? = switch rating.source {
+        case .rottenTomatoes: rating.value >= 6 ? "🍅" : "🤢"
+        case .rottenTomatoesAudience: "🍿"
+        case .unknown: "⭐"
+        default: nil
+        }
+        if let emoji {
+            let glyph = UIImageView(image: emojiGlyph(emoji))
+            glyph.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                glyph.widthAnchor.constraint(equalToConstant: 20),
+                glyph.heightAnchor.constraint(equalToConstant: 20)
+            ])
+            ratingStack = UIStackView(arrangedSubviews: [glyph, label])
+            ratingStack.spacing = 2
+        } else {
+            ratingStack = UIStackView(arrangedSubviews: [makeCaptionLabel(rating.name, alpha: alpha), label])
+            ratingStack.spacing = 6
+        }
+        ratingStack.axis = .horizontal
+        ratingStack.alignment = .center
+        return ratingStack
     }
 
     /// An emoji as the score's glyph (tomato when fresh at 60% and up, nauseated face when rotten,

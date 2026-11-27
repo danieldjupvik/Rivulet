@@ -2720,9 +2720,6 @@ extension LiveTVAetherPlayerViewController: PlayerRemoteInputHost {
     func showControlsTemporarily() { flashTimeline() }
     func hideControls() { hideRail() }
 
-    /// The bar already reads in clock times, so there is nothing to toggle.
-    func toggleClockTimes() {}
-
     func toggleFill() {
         fillsScreen.toggle()
         aetherPlayer?.fillsScreen = fillsScreen

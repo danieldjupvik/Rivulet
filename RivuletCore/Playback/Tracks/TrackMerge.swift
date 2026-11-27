@@ -95,6 +95,7 @@ enum TrackMerge {
             name: preferredName(engine: engineTrack, plex: plexTrack),
             language: plexTrack.language ?? engineTrack.language,
             languageCode: plexTrack.languageCode ?? engineTrack.languageCode,
+            languageTag: plexTrack.languageTag ?? engineTrack.languageTag,
             codec: engineTrack.codec ?? plexTrack.codec,
             isDefault: engineTrack.isDefault || plexTrack.isDefault,
             isForced: engineTrack.isForced || plexTrack.isForced,

@@ -57,12 +57,12 @@ struct BelowFoldInitialSelectionTests {
         #expect(provider.playbackCalls == ["detail(show)"])
     }
 
-    @Test(arguments: [false, true])
+    @Test(ExclusiveKeyWindowTrait(), arguments: [false, true])
     func initialFocusDuringSlidePreservesTheSelectedSeasonLanding(animated: Bool) async throws {
         try await verifyInitialFocusDuringSlide(animated: animated, missesEarlyFocus: false)
     }
 
-    @Test(arguments: [false, true])
+    @Test(ExclusiveKeyWindowTrait(), arguments: [false, true])
     func missedEarlyFocusRetriesAtDetailsRest(animated: Bool) async throws {
         try await verifyInitialFocusDuringSlide(animated: animated, missesEarlyFocus: true)
     }
@@ -128,12 +128,12 @@ struct BelowFoldInitialSelectionTests {
         #expect(collection.isScrollEnabled)
     }
 
-    @Test(arguments: [false, true])
+    @Test(ExclusiveKeyWindowTrait(), arguments: [false, true])
     func lateFullLoadOffersTheSelectedEpisodeAfterAnEmptyHandoff(cellRealizesLater: Bool) async throws {
         try await verifyLateEpisodeFocus(cellRealizesLater: cellRealizesLater, contentArrivesBeforeHandoff: false)
     }
 
-    @Test(arguments: [false, true])
+    @Test(ExclusiveKeyWindowTrait(), arguments: [false, true])
     func episodeLoadedBeforeHandoffCanTakeFocusAfterItsCellAppears(animated: Bool) async throws {
         try await verifyLateEpisodeFocus(cellRealizesLater: true, contentArrivesBeforeHandoff: true, animated: animated)
     }
@@ -249,7 +249,8 @@ struct BelowFoldInitialSelectionTests {
         #expect(preferredPath == (removedID == "s3e4" ? nil : IndexPath(item: 20, section: 0)))
     }
 
-    @Test func lateMovieLoadOffersFocusToTheFirstRow() async throws {
+    @Test(ExclusiveKeyWindowTrait())
+    func lateMovieLoadOffersFocusToTheFirstRow() async throws {
         let title = item("movie", .movie)
         let provider = StubMediaProvider(id: providerID)
         provider.detailResult = MediaItemDetail(
@@ -288,7 +289,8 @@ struct BelowFoldInitialSelectionTests {
         #expect(collection.lastFocusedIndexPath == IndexPath(item: 0, section: 0))
     }
 
-    @Test func carouselWaitsForRowsAndKeepsFocusOnItsAnchorDuringHandoff() async throws {
+    @Test(ExclusiveKeyWindowTrait())
+    func carouselWaitsForRowsAndKeepsFocusOnItsAnchorDuringHandoff() async throws {
         let title = item("movie", .movie)
         let provider = StubMediaProvider(id: providerID)
         provider.detailResult = MediaItemDetail(
@@ -365,18 +367,23 @@ struct BelowFoldInitialSelectionTests {
         try await waitUntil { focus.focusedItem === play }
     }
 
-    @Test func lateFullLoadPreservesTheFocusedSeasonAndRailOffset() async throws {
+    @Test(ExclusiveKeyWindowTrait())
+    func lateFullLoadPreservesTheFocusedSeasonAndRailOffset() async throws {
         let provider = makeProvider()
         MediaProviderRegistry.shared.register(provider)
         defer { MediaProviderRegistry.shared.unregister(providerID: provider.id) }
         let view = BelowFoldCollectionView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         let host = FocusHost(view)
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
         let window = UIWindow(windowScene: scene)
         window.frame = view.frame
         window.rootViewController = host
         window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer {
+            window.isHidden = true
+            previousKeyWindow?.makeKey()
+        }
 
         try await load(view, item: item("show", .show), full: false)
         view.layoutIfNeeded()

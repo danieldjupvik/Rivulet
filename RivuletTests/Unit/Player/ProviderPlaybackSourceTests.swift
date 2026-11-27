@@ -6,6 +6,9 @@
 //  RivuletTests
 //
 
+import SwiftUI
+import Testing
+import UIKit
 import XCTest
 @testable import Rivulet
 
@@ -690,5 +693,274 @@ final class ProviderPlaybackSourceTests: XCTestCase {
         XCTAssertEqual(vm.currentScrubThumbnailSource, .engine)
         vm.preloadThumbnails()
         XCTAssertNil(vm.preloadedThumbnailPartId)
+    }
+}
+
+@MainActor
+struct ProviderPlayerDeliveryTests {
+    @Test
+    func stoppingPlaybackClearsActiveShuttleScrubbing() {
+        let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
+        let vm = makePlayer(provider)
+        vm.scrubInDirection(forward: true)
+        #expect(vm.isScrubbing)
+        #expect(vm.scrubSpeed == 1)
+
+        vm.stopPlayback()
+
+        #expect(!vm.isScrubbing)
+        #expect(vm.scrubSpeed == 0)
+    }
+
+    @Test
+    func lateFramesCannotReplaceNewerFramesOrSurviveCancellation() async throws {
+        let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
+        let older = PlayerResultGate<CGImage?>()
+        let cancelled = PlayerResultGate<CGImage?>()
+        defer {
+            older.resolve(nil)
+            cancelled.resolve(nil)
+        }
+        let oldImage = try #require(still(width: 6))
+        let newImage = try #require(still(width: 10))
+        provider.scrubPreviewSource = ControlledSeekPreview {
+            switch $0 {
+            case 1: await older.wait()
+            case 2: newImage
+            case 3: await cancelled.wait()
+            default: nil
+            }
+        }
+        let vm = makePlayer(provider)
+        vm.startScrubbing()
+        let early = try #require(vm.loadThumbnail(for: 1))
+        try await older.waitUntilRequested()
+        let latest = try #require(vm.loadThumbnail(for: 2))
+        await latest.value
+        #expect(vm.scrubThumbnail?.cgImage?.width == newImage.width)
+        older.resolve(oldImage)
+        await early.value
+        #expect(vm.scrubThumbnail?.cgImage?.width == newImage.width)
+
+        let pending = try #require(vm.loadThumbnail(for: 3))
+        try await cancelled.waitUntilRequested()
+        vm.cancelScrub()
+        vm.startScrubbing()
+        cancelled.resolve(oldImage)
+        await pending.value
+        #expect(vm.scrubThumbnail == nil)
+    }
+
+    @Test
+    func missingEpisodeGenreUsesTheSeriesFromFetchedDetailAndReusesTheRequest() async {
+        let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
+        let episodeListing = JellyfinFixtures.mediaItem("e1", kind: .episode)
+        let episodeDetail = JellyfinFixtures.mediaItem("e1", kind: .episode, grandparent: "show")
+        let show = JellyfinFixtures.mediaItem("show", kind: .show)
+        provider.detailResult = detail(show, genres: [" ", " Drama ", "Comedy"])
+        let vm = makePlayer(provider, item: episodeListing, detailItem: episodeDetail)
+
+        #expect(vm.infoGenre == nil)
+        #expect(await vm.resolvedInfoGenre() == "Drama")
+        await vm.loadInsightsCast()
+        #expect(provider.playbackCalls == ["detail(show)"])
+    }
+
+    @Test(arguments: [false, true])
+    func plexInfoAndInsightsShareSeriesMetadata(opensInsightsFirst: Bool) async {
+        var episode = PlexMetadata(ratingKey: "episode", type: "episode")
+        episode.grandparentRatingKey = "show"
+        var show = PlexMetadata(ratingKey: "show", type: "show")
+        show.Genre = [PlexTag(tag: "Drama")]
+        show.Role = [PlexRole(tag: "Series Lead", role: "Detective")]
+        let vm = UniversalPlayerViewModel(metadata: episode, serverURL: "http://plex.local", authToken: "t")
+        var seriesRequests: [String] = []
+        var fullRequests: [String] = []
+        vm.plexMetadataLookup = { _, _, key in
+            seriesRequests.append(key)
+            return show
+        }
+        vm.plexMetadataFetch = { _, _, key in
+            fullRequests.append(key)
+            return episode
+        }
+
+        if opensInsightsFirst { await vm.loadInsightsCast() }
+        #expect(await vm.resolvedInfoGenre() == "Drama")
+        if !opensInsightsFirst { await vm.loadInsightsCast() }
+
+        #expect(vm.insightsCast.map(\.name) == ["Series Lead"])
+        #expect(seriesRequests == ["show"])
+        #expect(fullRequests == ["episode"])
+    }
+
+    @Test(arguments: [false, true])
+    func stoppingPlaybackCancelsTheSharedSeriesRequest(loadsCast: Bool) async throws {
+        let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
+        let gate = PlayerResultGate<Void>()
+        let cancellation = PlayerResultGate<Bool>()
+        defer { gate.resolve(()) }
+        let show = detail(JellyfinFixtures.mediaItem("show", kind: .show), genres: ["Drama"])
+        provider.detailResultFor = { _ in
+            await gate.wait()
+            await cancellation.resolve(Task.isCancelled)
+            return show
+        }
+        let vm = makePlayer(provider, item: episode("e1", number: 1))
+        let pending = Task {
+            if loadsCast {
+                await vm.loadInsightsCast()
+            } else {
+                #expect(await vm.resolvedInfoGenre() == nil)
+            }
+        }
+        try await gate.waitUntilRequested()
+
+        vm.stopPlayback()
+        gate.resolve(())
+        await pending.value
+        #expect(await cancellation.wait())
+        #expect(provider.playbackCalls.filter { $0 == "detail(show)" }.count == 1)
+    }
+
+    enum SubtitleSearchNavigation: CaseIterable {
+        case stayOnMenu, closeMenu, changeEpisode, openStyle, returnFromStyle
+    }
+
+    @Test(arguments: SubtitleSearchNavigation.allCases)
+    func subtitleSearchRespectsMenuNavigation(_ navigation: SubtitleSearchNavigation) async throws {
+        let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
+        let gate = PlayerResultGate<[SubtitleSearchResult]>()
+        defer { gate.resolve([]) }
+        provider.subtitleSearchHandler = { _, _ in await gate.wait() }
+        let current = episode("e1", number: 1)
+        let vm = makePlayer(provider, item: current)
+        await vm.refreshSubtitleSearchAvailability()
+        let controller = PlayerContainerViewController(rootView: Color.black, viewModel: vm,
+                                                       inputCoordinator: PlaybackInputCoordinator())
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        controller.view.layoutIfNeeded()
+        let rail = try #require(controller.view.subviews.compactMap { $0 as? PlayerRailView }.first)
+        rail.alpha = 1
+        rail.subtitlesButton.onPress?()
+        let panel = try #require(controller.view.subviews.compactMap { $0 as? PlayerRailPanelView }.last)
+        let searchTitle = String(localized: "Search for Subtitles")
+        let row = try #require(rows(in: panel).first { $0.row.title == searchTitle })
+        let pending = try #require(controller.searchSubtitles(from: row))
+        try await gate.waitUntilRequested()
+
+        switch navigation {
+        case .stayOnMenu:
+            break
+        case .changeEpisode:
+            let next = episode("e2", number: 2)
+            provider.childrenByParent["season"] = [current, next]
+            provider.detailResult = detail(next)
+            provider.streamResult = StreamInfo(source: source, playSessionID: nil, trackInfoAvailable: true)
+            await vm.loadUpNextEpisodes()
+            await vm.playEpisode(ProviderPlaybackMetadata.listing(item: next))
+            try #require(vm.metadata.ratingKey == "e2")
+        case .closeMenu:
+            panel.dismissPanel()
+        case .openStyle, .returnFromStyle:
+            let style = try #require(rows(in: panel).first { $0.row.title == String(localized: "Style") })
+            let openStyle = try #require(style.onTap)
+            openStyle()
+            try #require(row.isDescendant(of: panel) == false)
+            if navigation == .returnFromStyle {
+                try #require(panel.contentHandlesMenuPress())
+                let rebuiltRow = try #require(rows(in: panel).first { $0.row.title == String(localized: "Searching…") })
+                #expect(rebuiltRow !== row)
+                #expect(controller.searchSubtitles(from: rebuiltRow) == nil)
+                #expect(!pending.isCancelled)
+            }
+        }
+
+        let result = SubtitleSearchResult(id: "result", title: "Subtitle result", language: nil, format: nil,
+                                          isHearingImpaired: false, isForced: false)
+        gate.resolve([result])
+        await pending.value
+        if navigation != .stayOnMenu {
+            #expect(!rows(in: controller.view).contains { $0.row.title == result.displayTitle })
+        }
+        if navigation == .openStyle {
+            try #require(panel.contentHandlesMenuPress())
+        }
+        if navigation == .openStyle || navigation == .returnFromStyle {
+            let viewResults = try #require(rows(in: panel).first { $0.row.title == String(localized: "View Search Results") })
+            viewResults.onTap?()
+        }
+        if navigation != .closeMenu && navigation != .changeEpisode {
+            #expect(rows(in: controller.view).contains { $0.row.title == result.displayTitle })
+        }
+    }
+
+    private func rows(in view: UIView) -> [CardTrackRowButton] {
+        if let row = view as? CardTrackRowButton { return [row] }
+        return view.subviews.flatMap(rows)
+    }
+
+    private func episode(_ id: String, number: Int) -> MediaItem {
+        MediaItem(ref: MediaItemRef(providerID: "jellyfin:srv", itemID: id), kind: .episode, title: id,
+                  sortTitle: nil, overview: nil, year: nil, runtime: 100,
+                  parentRef: MediaItemRef(providerID: "jellyfin:srv", itemID: "season"),
+                  grandparentRef: MediaItemRef(providerID: "jellyfin:srv", itemID: "show"),
+                  episodeNumber: number, seasonNumber: 1, childProgress: nil,
+                  userState: MediaUserState(isPlayed: false, viewOffset: 0, isFavorite: false, lastViewedAt: nil),
+                  artwork: MediaArtwork(poster: nil, backdrop: nil, thumbnail: nil, logo: nil),
+                  parentArtwork: nil, grandparentArtwork: nil)
+    }
+
+    private let source = MediaSource(id: "version", container: "mkv", duration: 100, bitrate: nil, fileSize: nil,
+                                     fileName: nil, videoResolution: nil, videoTracks: [], audioTracks: [],
+                                     subtitleTracks: [], streamKind: .directPlay, streamURL: nil)
+
+    private func makePlayer(_ provider: StubMediaProvider, item: MediaItem = JellyfinFixtures.mediaItem("m1"),
+                            detailItem: MediaItem? = nil) -> UniversalPlayerViewModel {
+        let stream = StreamInfo(source: source, playSessionID: nil, trackInfoAvailable: true)
+        let playback = ProviderPlayback(provider: provider, item: item, detail: detail(detailItem ?? item), stream: stream,
+                                        extras: PlaybackExtras())
+        return UniversalPlayerViewModel(providerPlayback: playback, startOffset: nil)
+    }
+
+    private func detail(_ item: MediaItem, genres: [String] = []) -> MediaItemDetail {
+        MediaItemDetail(
+            item: item, tagline: nil, genres: genres, studios: [], cast: [], directors: [], writers: [],
+            chapters: [], mediaSources: [source], trailerURL: nil, contentRating: nil, nextEpisode: nil, collections: [])
+    }
+
+    private func still(width: Int) -> CGImage? {
+        UIGraphicsImageRenderer(size: CGSize(width: width, height: 4)).image { _ in }.cgImage
+    }
+}
+
+private nonisolated struct ControlledSeekPreview: ScrubPreviewSource {
+    let load: @Sendable (TimeInterval) async -> CGImage?
+    func image(at seconds: Double) async -> CGImage? { await load(seconds) }
+}
+
+@MainActor
+private final class PlayerResultGate<Value: Sendable> {
+    private var result: Value?
+    private var continuation: CheckedContinuation<Value, Never>?
+
+    func wait() async -> Value {
+        if let result { return result }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilRequested() async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while continuation == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(continuation != nil)
+    }
+
+    func resolve(_ value: Value) {
+        guard result == nil else { return }
+        result = .some(value)
+        continuation?.resume(returning: value)
+        continuation = nil
     }
 }

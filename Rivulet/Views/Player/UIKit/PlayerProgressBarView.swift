@@ -35,6 +35,7 @@ final class PlayerProgressBarView: UIView {
         static let skipGlyph = CGSize(width: 36, height: 39)
         static let marker = CGSize(width: 2, height: 17)
         static let thumbnail = CGSize(width: 400, height: 225)
+        static let thumbnailEdgeOverhang: CGFloat = 16
         static let thumbnailRadius: CGFloat = 16
         /// Thumbnail bottom above the track center while scrubbing / ring jogging.
         static let thumbnailLift: CGFloat = 31
@@ -126,6 +127,8 @@ final class PlayerProgressBarView: UIView {
     private var scrubTime: TimeInterval = 0
     private var isScrubbing = false
     private var isWheelScrubbing = false
+    private var usedWheelDuringScrub = false
+    private var previewExitAnimator: UIViewPropertyAnimator?
     private var ghostProgress: Double?
     private var labels = Labels(elapsed: "", remaining: "")
     private var lastChapters: [PlexChapter] = []
@@ -355,7 +358,16 @@ final class PlayerProgressBarView: UIView {
     ) {
         guard !isSkeleton else { return }
         let ring = isWheelScrubbing && isScrubbing
-        let stateChanged = isScrubbing != self.isScrubbing || ring != self.isWheelScrubbing
+        let scrubChanged = isScrubbing != self.isScrubbing
+        let startsScrub = scrubChanged && isScrubbing
+        let stateChanged = scrubChanged || ring != self.isWheelScrubbing
+        let exitsPreview = animatesScrubPreviewExit && !isLive && showsScrubThumbnail
+            && scrubChanged && !isScrubbing && !usedWheelDuringScrub && self.scanLevel == 0
+        if startsScrub {
+            stopScrubPreviewExit()
+            usedWheelDuringScrub = false
+        }
+        if ring { usedWheelDuringScrub = true }
 
         self.currentTime = currentTime
         self.duration = duration
@@ -368,7 +380,10 @@ final class PlayerProgressBarView: UIView {
         self.labels = labels
         self.lastMarkers = markers
         self.lastChapters = chapters
-        if let scrubThumbnail { thumbnailImageView.image = scrubThumbnail }
+        if previewExitAnimator == nil,
+           scrubThumbnail != nil || (!isLive && startsScrub) {
+            thumbnailImageView.image = scrubThumbnail
+        }
         self.scanLevel = isScrubbing ? scanLevel : 0
         if isScrubbing { clearSkipIndicator() }
 
@@ -379,6 +394,7 @@ final class PlayerProgressBarView: UIView {
         if snap || window == nil {
             UIView.performWithoutAnimation { layoutBar() }
         } else if stateChanged {
+            if exitsPreview && UIView.areAnimationsEnabled { animateScrubPreviewExit() }
             let animator = Self.stateSpring()
             animator.addAnimations { self.layoutBar() }
             animator.startAnimation()
@@ -435,18 +451,16 @@ final class PlayerProgressBarView: UIView {
         elapsedRing.center = CGPoint(x: currentX, y: centerY)
         elapsedRing.alpha = ring ? 1 : 0
 
-        let halfThumb = Metrics.thumbnail.width / 2
-        let thumbX = min(max(playheadX, halfThumb), max(halfThumb, width - halfThumb))
-        thumbnailContainer.center = CGPoint(x: thumbX, y: needleTop - Metrics.thumbnail.height / 2)
-        thumbnailContainer.alpha = isScrubbing && showsScrubThumbnail ? 1 : 0
-        let eyebrow = isScrubbing ? chapterEyebrowText(at: displayTime) : nil
-        if let eyebrow {
-            eyebrowLabel.attributedText = NSAttributedString(string: eyebrow, attributes: [.kern: 16 * 0.12])
-            eyebrowLabel.sizeToFit()
+        if previewExitAnimator == nil {
+            thumbnailContainer.alpha = isScrubbing && showsScrubThumbnail ? 1 : 0
+            let eyebrow = isScrubbing ? chapterEyebrowText(at: displayTime) : nil
+            if let eyebrow {
+                eyebrowLabel.attributedText = NSAttributedString(string: eyebrow, attributes: [.kern: 16 * 0.12])
+                eyebrowLabel.sizeToFit()
+            }
+            layoutThumbnail(size: fittedThumbnailSize, playheadX: playheadX, width: width, bottom: needleTop)
+            eyebrowLabel.alpha = eyebrow == nil ? 0 : 1
         }
-        eyebrowLabel.center = CGPoint(
-            x: thumbX, y: thumbnailContainer.frame.minY - Metrics.eyebrowGap - eyebrowLabel.bounds.height / 2)
-        eyebrowLabel.alpha = eyebrow == nil ? 0 : 1
 
         layoutLabels(rowTop: ring ? centerY + Metrics.ringLabelOffset : centerY + height / 2 + Metrics.labelGap,
                      playheadX: playheadX, width: width, ring: ring)
@@ -571,6 +585,7 @@ final class PlayerProgressBarView: UIView {
         applyAppearanceColors()
         [fill, playheadMarker, markersContainer].forEach { $0.isHidden = on }
         if on {
+            stopScrubPreviewExit()
             currentTime = 0
             ghostProgress = nil
             isScrubbing = false
@@ -700,9 +715,102 @@ final class PlayerProgressBarView: UIView {
             : (isFocusDimmed ? Self.dimmedTrackColor : Self.trackColor)
     }
 
+    func setScrubThumbnail(_ image: UIImage) {
+        guard !isLive, isScrubbing, thumbnailImageView.image !== image else { return }
+        thumbnailImageView.image = image
+        let size = fittedThumbnailSize
+        guard bounds.width > 0, size != thumbnailContainer.bounds.size else { return }
+        UIView.performWithoutAnimation {
+            layoutThumbnail(size: size, playheadX: scrubNeedle.frame.midX,
+                            width: bounds.width, bottom: scrubNeedle.frame.minY)
+        }
+    }
+
+    private func animateScrubPreviewExit() {
+        let previewViews = [thumbnailContainer, eyebrowLabel]
+        UIView.performWithoutAnimation {
+            for view in previewViews {
+                guard let presentation = view.layer.presentation() else { continue }
+                let frame = presentation.frame
+                let alpha = CGFloat(presentation.opacity)
+                view.layer.removeAllAnimations()
+                view.frame = frame
+                view.alpha = alpha
+            }
+        }
+
+        let needleX = (scrubNeedle.layer.presentation()?.frame ?? scrubNeedle.frame).midX
+        let trackTop = Metrics.centerY - Metrics.restHeight / 2
+        let reducesMotion = UIAccessibility.isReduceMotionEnabled
+        let animator = UIViewPropertyAnimator(duration: 0.4,
+                                              controlPoint1: CGPoint(x: 0.25, y: 0.1),
+                                              controlPoint2: CGPoint(x: 0.25, y: 1))
+        previewExitAnimator = animator
+        animator.addAnimations { [weak self] in
+            guard let self else { return }
+            if !reducesMotion {
+                self.thumbnailContainer.center = CGPoint(x: needleX, y: trackTop)
+                self.thumbnailContainer.transform = CGAffineTransform(scaleX: 0.001, y: 0.001)
+            }
+            self.thumbnailContainer.alpha = 0
+            self.eyebrowLabel.alpha = 0
+        }
+        animator.addCompletion { [weak self] _ in self?.stopScrubPreviewExit() }
+        animator.startAnimation()
+    }
+
+    func stopScrubPreviewExit() {
+        guard let animator = previewExitAnimator else { return }
+        previewExitAnimator = nil
+        if animator.state == .active { animator.stopAnimation(true) }
+        UIView.performWithoutAnimation {
+            thumbnailContainer.alpha = 0
+            thumbnailContainer.transform = .identity
+            eyebrowLabel.alpha = 0
+        }
+    }
+
+    private var fittedThumbnailSize: CGSize {
+        guard !isLive, let size = thumbnailImageView.image?.size,
+              size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return Metrics.thumbnail
+        }
+        let scale = min(Metrics.thumbnail.width / size.width, Metrics.thumbnail.height / size.height)
+        return CGSize(width: size.width * scale, height: size.height * scale)
+    }
+
+    private func layoutThumbnail(size: CGSize, playheadX: CGFloat, width: CGFloat, bottom: CGFloat) {
+        if size != thumbnailContainer.bounds.size {
+            thumbnailContainer.bounds.size = size
+            thumbnailImageView.frame = thumbnailContainer.bounds
+            thumbnailContainer.layer.shadowPath = UIBezierPath(
+                roundedRect: thumbnailContainer.bounds, cornerRadius: Metrics.thumbnailRadius).cgPath
+        }
+        let halfThumb = size.width / 2
+        let thumbX: CGFloat
+        if isLive {
+            thumbX = min(max(playheadX, halfThumb), max(halfThumb, width - halfThumb))
+        } else if width >= size.width {
+            let leftOverhang = max(0, Metrics.thumbnailEdgeOverhang - playheadX)
+            let rightOverhang = max(0, Metrics.thumbnailEdgeOverhang - (width - playheadX))
+            thumbX = min(max(playheadX, halfThumb - leftOverhang), width - halfThumb + rightOverhang)
+        } else {
+            thumbX = width / 2
+        }
+        thumbnailContainer.center = CGPoint(x: thumbX, y: bottom - size.height / 2)
+        if !isLive {
+            eyebrowLabel.bounds.size.width = min(eyebrowLabel.bounds.width, width)
+        }
+        let halfLabel = eyebrowLabel.bounds.width / 2
+        eyebrowLabel.center = CGPoint(
+            x: isLive ? thumbX : min(max(thumbX, halfLabel), width - halfLabel),
+            y: bottom - size.height - Metrics.eyebrowGap - eyebrowLabel.bounds.height / 2)
+    }
+
     /// Clears per-item state so the next title's first scrub can't flash the
     /// previous title's thumbnail or chapter.
     func resetFilmstrip() {
+        stopScrubPreviewExit()
         lastChapters = []
         thumbnailImageView.image = nil
         isScrubbing = false
@@ -713,15 +821,13 @@ final class PlayerProgressBarView: UIView {
 
     /// "CHAPTER n · NAME" for the chapter containing `time`, or nil.
     private func chapterEyebrowText(at time: TimeInterval) -> String? {
-        for (index, chapter) in lastChapters.enumerated() {
-            guard let startMs = chapter.startTimeOffset else { continue }
-            let start = TimeInterval(startMs) / 1000.0
-            let end = chapter.endTimeOffset.map { TimeInterval($0) / 1000.0 } ?? duration
-            guard time >= start && time < end else { continue }
-            guard let tag = chapter.tag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty else { return nil }
+        guard let index = ChapterNavigator.activeIndex(at: time, duration: duration, chapters: lastChapters) else {
+            return nil
+        }
+        if let tag = lastChapters[index].tag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty {
             return String(localized: "CHAPTER \(index + 1) · \(tag.uppercased())")
         }
-        return nil
+        return String(localized: "Chapter \(index + 1)").localizedUppercase
     }
 
     /// Hash of everything the marker views are drawn from; they rebuild only when it changes.
@@ -763,6 +869,13 @@ final class PlayerProgressBarView: UIView {
     /// from the playhead. The toggle is the touch-surface tap; a scrub shows play time.
     private(set) var showsClockTimes = false
     private var clockTick: Timer?
+    private var playbackSpeed: Float = 1
+
+    func setPlaybackSpeed(_ speed: Float) {
+        guard speed != playbackSpeed else { return }
+        playbackSpeed = speed
+        if showsClockTimes { refreshClockLabels() }
+    }
 
     func setShowsClockTimes(_ on: Bool) {
         guard on != showsClockTimes else { return }
@@ -777,8 +890,9 @@ final class PlayerProgressBarView: UIView {
             return Labels(elapsed: formatTime(displayTime), remaining: "-\(formatTime(remaining))")
         }
         let now = Date()
+        let end = PlaybackEndTime.estimate(from: now, remaining: remaining, speed: playbackSpeed)
         return Labels(elapsed: Self.clockFormatter.string(from: now),
-                      remaining: Self.clockFormatter.string(from: now.addingTimeInterval(remaining)))
+                      remaining: Self.clockFormatter.string(from: end))
     }
 
     /// Paused, no time ticks arrive, so the clock and the end time go stale
@@ -786,7 +900,7 @@ final class PlayerProgressBarView: UIView {
     private func updateClockTick() {
         clockTick?.invalidate()
         clockTick = nil
-        guard showsClockTimes, window != nil else { return }
+        guard showsClockTimes, window != nil, alpha > 0 else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshClockLabels() }
         }
@@ -812,6 +926,7 @@ final class PlayerProgressBarView: UIView {
     var padsMinutes = true
     /// A song has no picture to scan through: the needle only crosses the track.
     var showsScrubThumbnail = true
+    var animatesScrubPreviewExit = false
 
     /// AVKit's format: "09:46" under an hour, "1:02:03" over.
     private func formatTime(_ seconds: TimeInterval) -> String {

@@ -3,6 +3,7 @@
 
 import Combine
 import OpenWatchParty
+import Testing
 import XCTest
 @testable import Rivulet
 
@@ -125,5 +126,46 @@ final class WatchTogetherTests: XCTestCase {
         XCTAssertEqual(WatchTogetherSession.failure(for: PartyError(.roomLocked)), .roomFull)
         XCTAssertEqual(WatchTogetherSession.failure(for: PartyError(.clientBlocked)), .unreachable)
         XCTAssertEqual(WatchTogetherSession.failure(for: URLError(.badURL)), .other)
+    }
+}
+
+@MainActor
+struct WatchTogetherPlaybackRateTests {
+    @Test
+    func roomETAUsesNominalRateAndPreservesTheLocalSpeed() {
+        let vm = UniversalPlayerViewModel(metadata: PlexMetadata(type: "movie"),
+                                          serverURL: "http://plex.local", authToken: "t")
+        vm.setPlaybackSpeed(2)
+        vm.roomPlaybackRate = 1
+        vm.setPlaybackSpeed(0.5)
+        vm.syncSetRate(1.04)
+        #expect(vm.endTimePlaybackSpeed == 1)
+        #expect(vm.playbackSpeed == 2)
+        vm.roomPlaybackRate = nil
+        #expect(vm.endTimePlaybackSpeed == 2)
+    }
+
+    @Test(arguments: [Float(1), Float(2)])
+    func releasingTheAdapterRestoresRoomOrLocalRateAndIgnoresLateCommands(_ restoredRate: Float) async throws {
+        let player = RateRecordingPlayer()
+        let adapter = WatchTogetherPlayerAdapter(player: player)
+        try await adapter.setRate(1.04)
+        adapter.releasePlayer(restoringRate: restoredRate)
+        try await adapter.setRate(0.98)
+        #expect(player.rates == [1.04, restoredRate])
+    }
+
+    private final class RateRecordingPlayer: WatchTogetherPlayer {
+        var rates: [Float] = []
+        var syncPosition: TimeInterval { 0 }
+        var syncDuration: TimeInterval { 3600 }
+        var syncIntendsToPlay: Bool { true }
+        var syncIsBuffering: Bool { false }
+        var syncHasFrame: Bool { true }
+
+        func syncPlay() {}
+        func syncPause() {}
+        func syncSetRate(_ rate: Float) { rates.append(rate) }
+        func syncSeek(to time: TimeInterval) async -> TimeInterval? { time }
     }
 }

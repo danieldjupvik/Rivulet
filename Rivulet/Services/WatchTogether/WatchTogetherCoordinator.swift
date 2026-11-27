@@ -34,6 +34,10 @@ final class WatchTogetherCoordinator {
         session.notices
             .sink { [weak self] notice in self?.viewModel?.showWatchTogetherNotice(notice) }
             .store(in: &cancellables)
+        session.$nominalPlaybackRate
+            .compactMap { $0 }
+            .sink { [weak self] rate in self?.viewModel?.roomPlaybackRate = rate }
+            .store(in: &cancellables)
         // The room stops waiting for a device off screen, and it catches up on return.
         NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
             .sink { [weak self] _ in self?.stepAway() }
@@ -92,9 +96,16 @@ final class WatchTogetherCoordinator {
     }
 
     private func bind(_ viewModel: UniversalPlayerViewModel, item: WatchTogetherItem) {
-        self.adapter?.stopTrimming()
+        guard session.isActive else { return }
+        let roomRate = session.nominalPlaybackRate ?? 1
+        if self.viewModel === viewModel {
+            self.adapter?.releasePlayer(restoringRate: roomRate)
+        } else {
+            releasePlayer(restoringLocalRate: true)
+        }
         let adapter = WatchTogetherPlayerAdapter(player: viewModel)
         self.viewModel = viewModel
+        viewModel.roomPlaybackRate = roomRate
         self.adapter = adapter
         self.item = item
         isAway = false
@@ -180,9 +191,7 @@ final class WatchTogetherCoordinator {
         guard let provider = MediaProviderRegistry.shared.provider(for: item.providerID) else { return }
         let ref = MediaItemRef(providerID: item.providerID, itemID: item.itemID)
         // Leaving the old player must not read as leaving the room.
-        adapter?.stopTrimming()
-        viewModel = nil
-        adapter = nil
+        releasePlayer(restoringLocalRate: true)
         session.detach()
         Task { @MainActor in
             guard let detail = try? await provider.fullDetail(for: ref),
@@ -239,18 +248,24 @@ final class WatchTogetherCoordinator {
     /// Menu out of the player leaves the room; the others carry on.
     func playerClosed(_ viewModel: UniversalPlayerViewModel) {
         guard self.viewModel === viewModel else { return }
-        adapter?.stopTrimming()
-        self.viewModel = nil
+        releasePlayer(restoringLocalRate: false)
+        session.leave()
+    }
+
+    private func releasePlayer(restoringLocalRate: Bool) {
+        adapter?.releasePlayer(restoringRate: restoringLocalRate ? viewModel?.playbackSpeed : nil)
+        viewModel?.roomPlaybackRate = nil
+        viewModel = nil
         adapter = nil
         item = nil
         playerCancellables = []
-        session.leave()
     }
 
     /// A guest parked at the end waits for the host; once it isn't a guest it finishes normally.
     private func roleChanged() {
-        if !session.isActive { adapter?.stopTrimming() }
         guard !session.isGuest else { return }
+        let viewModel = viewModel
+        if !session.isActive { releasePlayer(restoringLocalRate: true) }
         viewModel?.finishParkedPlayback()
     }
 

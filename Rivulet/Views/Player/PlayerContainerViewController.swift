@@ -28,7 +28,6 @@ class PlayerContainerViewController: UIViewController {
     /// The pill's two homes: bottom right over the video, or in the rail's tool row (#556).
     private var floatingPillConstraints: [NSLayoutConstraint] = []
     private var railPillConstraints: [NSLayoutConstraint] = []
-    private var pausedDimView: UIView?
     private var chromeScrim = ChromeScrimView()
     private var captionOverlay: CaptionOverlayView?
     /// Passing notes, top right (subtitle downloads, a server converting the file).
@@ -39,13 +38,30 @@ class PlayerContainerViewController: UIViewController {
     private var pauseInsights: PauseInsightsView?
     private var cancellables = Set<AnyCancellable>()
     /// The one floating panel shared by CC, audio, info and Up Next.
-    private var activeRailPanel: PlayerRailPanelView?
+    private var activeRailPanel: PlayerRailPanelView? {
+        didSet {
+            if activeRailPanel !== oldValue { cancelSubtitleSearch() }
+        }
+    }
     /// Closes an untouched info pane, as AVKit does after 8s, playing or paused (#411).
     private var paneIdleTimer: Timer?
     /// The open subtitle menu, and the speech model's download shown on its generated row.
     private weak var subtitleList: CardTrackListView?
     private var generatedSubtitleProgress: AnyCancellable?
-    private var subtitleSearchTask: Task<Void, Never>?
+    private enum SubtitleSearchPhase {
+        case searching(Task<Void, Never>)
+        case completed([SubtitleSearchResult]?)
+
+        func cancel() {
+            if case let .searching(task) = self { task.cancel() }
+        }
+    }
+
+    private var subtitleSearch: (generation: Int, phase: SubtitleSearchPhase)?
+    private weak var subtitleSearchAction: CardActionConfig?
+    private var settingsMenuSwipeBinding: DirectionalInputBinding?
+    private var settingsMenuSwitchOffset: CGFloat?
+    private var lastSettingsMenuSwitchGesture: Int?
 
     /// Previous `railVisible`, so `applyChromeVisibility()` can spot the rail
     /// APPEARING and start every appearance on the scrubber.
@@ -68,6 +84,7 @@ class PlayerContainerViewController: UIViewController {
     /// read when the rail's Insights panel is presented (P2a).
     private var insightsTriviaCache: TitleTrivia?
     private var suppressedTriviaIDsCache: Set<String> = []
+    private let remoteContactObserver = RemoteContactGestureRecognizer()
 
     /// Opaque black plate that covers the whole player while it fades out on
     /// exit. Created lazily on the first exit and never removed, since the
@@ -89,8 +106,6 @@ class PlayerContainerViewController: UIViewController {
     /// Touch twin for the floating skip pill's Up/Down (see `skipPillVertical`).
     private var skipPillSwipeBinding: DirectionalInputBinding?
     private var contentAnchor: ContentFocusAnchorView { remoteInput.contentAnchor }
-    /// The rail's state at the last content Up/Down, read before that press brings the chrome up.
-    private var railWasUpAtVerticalPress = false
 
     /// Reference to the player view model for handling Menu button logic
     weak var viewModel: UniversalPlayerViewModel?
@@ -154,7 +169,12 @@ class PlayerContainerViewController: UIViewController {
 
         // Created here so it exists before any chrome binding runs; restacked
         // just below the rail once the chrome is built (see below).
-        remoteInput.install(in: view, above: hostingController?.view)
+        remoteInput.install(in: view, above: hostingController?.view, catchSwipesOutsideAnchor: true)
+        remoteContactObserver.isEnabled = false
+        view.addGestureRecognizer(remoteContactObserver)
+        viewModel?.hasRemoteContact = { [weak remoteContactObserver] in
+            UIApplication.shared.applicationState == .active && remoteContactObserver?.hasReliableContact == true
+        }
 
         // Captions sit directly above the video and BELOW every chrome layer
         // added afterwards, so the rail can never be drawn behind them. A plain
@@ -179,17 +199,11 @@ class PlayerContainerViewController: UIViewController {
 
         if let vm = viewModel {
             chromeScrim.isUserInteractionEnabled = false
+            vm.hasDescriptionOverlay = { [weak self] in self?.descriptionOverlay != nil }
 
-            // Full-frame pause dim sits just above the video, below every
-            // other chrome layer (z-order bottom-up: scrim, dim, rail,
-            // progress bar, skip pill, loading label).
-            let dim = UIView()
-            dim.backgroundColor = UIColor.black.withAlphaComponent(0.28)
-            dim.alpha = 0
-            dim.isUserInteractionEnabled = false
-
-            let railView = PlayerRailView()
+            let railView = PlayerRailView(controlGlassEffect: UIGlassEffect(style: .regular))
             let bar = PlayerProgressBarView()
+            bar.animatesScrubPreviewExit = true
             let proxy = ScrubberFocusProxyView()
             let pill = SkipPillButton()
             // Alpha-driven visibility (see applyChromeVisibility): alpha 0 also
@@ -228,14 +242,13 @@ class PlayerContainerViewController: UIViewController {
                 }
             )
 
-            [chromeScrim, dim, railView, bar, proxy, pill].forEach {
+            [chromeScrim, railView, bar, proxy, pill].forEach {
                 view.addSubview($0)
                 $0.translatesAutoresizingMaskIntoConstraints = false
             }
             // Z-order bottom-up, explicit (subview-add order above already
             // matches, but state this is intentional, not incidental).
             view.bringSubviewToFront(chromeScrim)
-            view.bringSubviewToFront(dim)
             view.bringSubviewToFront(railView)
             view.bringSubviewToFront(bar)
             view.bringSubviewToFront(proxy)
@@ -246,11 +259,6 @@ class PlayerContainerViewController: UIViewController {
                 chromeScrim.leadingAnchor.constraint(equalTo: view.leadingAnchor),
                 chromeScrim.trailingAnchor.constraint(equalTo: view.trailingAnchor),
                 chromeScrim.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-                dim.topAnchor.constraint(equalTo: view.topAnchor),
-                dim.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                dim.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                dim.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
                 // Rail: the screen's bottom band, edge to edge (AVKit's layout).
                 railView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -312,7 +320,9 @@ class PlayerContainerViewController: UIViewController {
             // anchor: full-screen, so above it the anchor could not take focus.
             let pause = PauseScreenView(frame: view.bounds)
             pause.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            pause.progress = { [weak vm] in (vm?.currentTime ?? 0, vm?.duration ?? 0) }
+            pause.progress = { [weak vm] in
+                (vm?.currentTime ?? 0, vm?.duration ?? 0, vm?.endTimePlaybackSpeed ?? 1)
+            }
             view.insertSubview(pause, belowSubview: contentAnchor)
             pauseScreen = pause
 
@@ -320,7 +330,6 @@ class PlayerContainerViewController: UIViewController {
             progressBar = bar
             scrubberProxy = proxy
             skipPill = pill
-            pausedDimView = dim
 
             bindChrome(to: vm)
         }
@@ -344,6 +353,8 @@ class PlayerContainerViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        remoteContactObserver.isEnabled = true
+        restartPaneIdleTimer()
         // Fallback press target for when NOTHING holds focus. Presses go to
         // the focused view and bubble up the responder chain; the first
         // responder only receives them directly in the focusless case.
@@ -367,6 +378,7 @@ class PlayerContainerViewController: UIViewController {
         }
         if let descriptionOverlay { return [descriptionOverlay] }
         if let panel = activeRailPanel, panel.window != nil {
+            if let source = descriptionFocusTarget(in: panel) { return [source] }
             // A pane leaves focus on its pill, as AVKit's tabs do; Down enters it.
             if panel.isPane, let rail { return [rail] }
             return [panel]
@@ -378,11 +390,14 @@ class PlayerContainerViewController: UIViewController {
         // Chrome hidden + a skip marker up: the pill is the lone affordance, so
         // it owns focus and a single Select jumps forward. (Ownership is false
         // whenever the rail/panel is up, so this never fights the checks above.)
-        if let pauseInsights { return [pauseInsights] }
+        if let pauseInsights {
+            return [descriptionFocusTarget(in: pauseInsights) ?? pauseInsights]
+        }
         if viewModel?.skipPillOwnsFocus == true, let skipPill {
             return [skipPill]
         }
         if viewModel?.controlsFocusActive == true, let rail {
+            if let timeline = timelineForPaneExitGesture { return [timeline] }
             return [rail]
         }
         // Everything else is the content state. Falls through to the hosting
@@ -484,6 +499,7 @@ class PlayerContainerViewController: UIViewController {
     }
 
     deinit {
+        subtitleSearch?.phase.cancel()
         // A running UIViewPropertyAnimator aborts on release, so stop it first.
         if let animator = exitFadeAnimator, animator.state != .inactive {
             animator.stopAnimation(true)
@@ -492,6 +508,12 @@ class PlayerContainerViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        cancelSubtitleSearch()
+        remoteContactObserver.isEnabled = false
+        remoteContactObserver.clearContact()
+        paneIdleTimer?.invalidate()
+        paneIdleTimer = nil
+        progressBar?.stopScrubPreviewExit()
         // Safety net for an exit that never stops the view model (`stopPlayback`
         // otherwise brings the pause screen down through `applyPauseScreen`).
         pauseScreen?.hide()
@@ -523,6 +545,8 @@ class PlayerContainerViewController: UIViewController {
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         restartPaneIdleTimer()
+        if let horizontal = presses.first(where: { $0.type == .leftArrow || $0.type == .rightArrow }),
+           switchSettingsMenu(movingRight: horizontal.type == .rightArrow) { return }
         if remoteInput.pressesBegan(presses) { return }
         super.pressesBegan(presses, with: event)
     }
@@ -568,7 +592,17 @@ class PlayerContainerViewController: UIViewController {
     // MARK: - Chrome Bindings
 
     private func bindChrome(to vm: UniversalPlayerViewModel) {
-        guard let rail, progressBar != nil else { return }
+        guard let rail, let bar = progressBar else { return }
+        settingsMenuSwipeBinding = DirectionalInputBinding(
+            gatedSwipesOn: view,
+            directions: [.left, .right],
+            shouldHandle: { [weak self] direction in
+                !RemoteInputHandler.isClickpadDown && self?.settingsMenuNeighbor(movingRight: direction == .right) != nil
+            },
+            onSwipe: { [weak self] direction in
+                self?.switchSettingsMenu(movingRight: direction == .right)
+            }
+        )
 
         // Static metadata (re-applied on episode advance via itemGeneration).
         applyRailMetadata(vm: vm)
@@ -580,7 +614,14 @@ class PlayerContainerViewController: UIViewController {
         vm.$itemGeneration
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak vm] _ in
+            .sink { [weak self, weak vm] generation in
+                if let search = self?.subtitleSearch, search.generation < generation {
+                    self?.cancelSubtitleSearch()
+                }
+                self?.paneTabArrivalGesture = nil
+                self?.paneExitGesture = nil
+                self?.toolboxTimelineArrivalGesture = nil
+                self?.rail?.rememberPaneEntry(nil)
                 self?.progressBar?.resetFilmstrip()
                 if let vm { self?.applyRailMetadata(vm: vm) }
                 // An open Playlist pane marks the old position; it rebuilds on the next open.
@@ -612,9 +653,32 @@ class PlayerContainerViewController: UIViewController {
             }
             .store(in: &cancellables)
 
+        vm.$scrubThumbnail
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak vm, weak bar] image in
+                guard let vm, vm.isScrubbing, vm.scrubThumbnail === image else { return }
+                bar?.setScrubThumbnail(image)
+            }
+            .store(in: &cancellables)
+
         vm.$showControls
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.applyChromeVisibility() }
+            .store(in: &cancellables)
+
+        vm.$playbackSpeed
+            .combineLatest(vm.$roomPlaybackRate)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak vm] _ in
+                guard let self, let vm, let rail = self.rail else { return }
+                self.progressBar?.setPlaybackSpeed(vm.endTimePlaybackSpeed)
+                if let pauseScreen = self.pauseScreen, pauseScreen.isShowing { pauseScreen.refreshTime() }
+                rail.setSpeedAvailable(vm.roomPlaybackRate == nil)
+                if vm.roomPlaybackRate != nil, self.activeRailPanel?.sourceButton === rail.speedButton {
+                    self.activeRailPanel?.dismissPanel()
+                }
+            }
             .store(in: &cancellables)
 
         // Every skip shows AVKit's glyph beside the time, on the full chrome or the bar alone.
@@ -703,12 +767,11 @@ class PlayerContainerViewController: UIViewController {
         vm.$playbackState
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak vm] state in
-                guard let self, let vm else { return }
+                guard let self, vm != nil else { return }
                 let loading = state == .loading || state == .idle
                 // Startup can pass through a split-second .paused before
-                // the first .playing; the paused presentation (indicator,
-                // dims) must not flash for it. Only a pause AFTER playback
-                // has actually begun counts; a new load resets the gate.
+                // the first .playing. Keep the timeline's pause treatment off
+                // until playback has begun; a new load resets the gate.
                 if state == .playing {
                     self.hasPlayedSinceLoad = true
                 } else if loading {
@@ -847,14 +910,14 @@ class PlayerContainerViewController: UIViewController {
         // Rail actions. (No play/pause control, no skip-back — the remote owns seeking.)
         rail.onSubtitles = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
+            let searchAction = vm.subtitleSearchAvailable ? CardActionConfig(title: String(localized: "Search for Subtitles")) { [weak self] row in
+                self?.searchSubtitles(from: row)
+            } : nil
             let list = CardTrackListView.subtitleMenu(
                     tracks: vm.subtitleMenuTracks,
                     selectedTrackId: vm.chosenSubtitleTrackId, onTrackId: vm.subtitleOnTrackId,
-                    actions: vm.subtitleSearchAvailable ? [
-                        CardActionConfig(title: String(localized: "Search for Subtitles")) { [weak self] row in
-                            self?.searchSubtitles(from: row)
-                        },
-                    ] : [],
+                    recentSubtitleLanguage: { TrackIntentStore.recentSubtitleLanguage },
+                    actions: [searchAction].compactMap { $0 },
                     steppers: [
                         // Delay: sticky per movie/episode (ratingKey).
                         CardStepperConfig(
@@ -870,11 +933,12 @@ class PlayerContainerViewController: UIViewController {
                             onStep: { [weak vm] step in vm?.adjustSubtitleHeight(bySteps: step) }),
                     ],
                     onSelect: { [weak vm, weak self] id in
+                        self?.cancelSubtitleSearch()
                         vm?.selectSubtitleTrack(id: id)
                         // Generated subtitles picked before the model is on disk: stay to show the download.
                         if id == UniversalPlayerViewModel.generatedSubtitleId, SpeechModelStore.shared.state != .ready {
                             self?.subtitleList?.checkTrack(id)
-                        } else {
+                        } else if self?.subtitleList?.returnToSubtitleMenu(afterSelecting: id) != true {
                             self?.activeRailPanel?.dismissPanel()
                         }
                     })
@@ -886,7 +950,9 @@ class PlayerContainerViewController: UIViewController {
                     list?.updateTrack(UniversalPlayerViewModel.generatedSubtitleId,
                                       subtitle: UniversalPlayerViewModel.generatedSubtitleStatus)
                 }
-            self.presentRailPanel(content: list, width: CardTrackListView.menuWidth, from: rail.subtitlesButton)
+            if self.presentRailPanel(content: list, width: CardTrackListView.menuWidth, from: rail.subtitlesButton) {
+                self.subtitleSearchAction = searchAction
+            }
         }
         rail.onSubtitlesHold = { [weak self] in
             guard let self, let vm = self.viewModel else { return }
@@ -945,9 +1011,9 @@ class PlayerContainerViewController: UIViewController {
                 width: CardTrackListView.menuWidth, from: rail.filterButton)
         }
         // Speed: AVKit's set, the current pick checked.
-        rail.setSpeedAvailable(true)
+        rail.setSpeedAvailable(vm.roomPlaybackRate == nil)
         rail.onSpeed = { [weak self] in
-            guard let self, let vm = self.viewModel else { return }
+            guard let self, let vm = self.viewModel, vm.roomPlaybackRate == nil else { return }
             let rows = UniversalPlayerViewModel.playbackSpeeds.enumerated().map { index, speed in
                 CardTrackListView.Row(
                     title: speed.formatted(.number.precision(.fractionLength(0...2))) + "x",
@@ -1073,62 +1139,128 @@ class PlayerContainerViewController: UIViewController {
     /// Shared presenter for the rail panels; presenting one dismisses the last.
     /// Refuses while the rail is hidden or mid-scrub. Returns whether it presented.
     @discardableResult
-    private func presentRailPanel(content: UIView, width: CGFloat, from button: UIView) -> Bool {
+    private func presentRailPanel(content: UIView, width: CGFloat, from button: UIView,
+                                  allowsSettingsMenuSwitch: Bool = true) -> Bool {
         guard let rail, rail.alpha > 0.5, viewModel?.isScrubbing != true else { return false }
-        activeRailPanel?.dismissPanel()
+        let slide = settingsMenuSwitchOffset.flatMap { offset in activeRailPanel.map { (outgoing: $0, offset: offset) } }
+        if slide == nil {
+            activeRailPanel?.dismissPanel()
+        } else {
+            rail.setFocusLanding(button)
+        }
         let panel = PlayerRailPanelView.present(content: content, width: width,
-                                                in: view, aboveRail: rail, towards: button)
+                                                in: view, aboveRail: rail, towards: button, slide: slide,
+                                                glassEffect: makeVODCardGlassEffect())
+        panel.allowsSettingsMenuSwitch = allowsSettingsMenuSwitch
         adoptRailPanel(panel)
+        return true
+    }
+
+    private func settingsMenuNeighbor(movingRight: Bool) -> TransportControlButton? {
+        guard lastSettingsMenuSwitchGesture != MenuPressInterceptor.remoteGestures.count,
+              descriptionOverlay == nil, let panel = activeRailPanel,
+              let focused = UIFocusSystem.focusSystem(for: view)?.focusedItem as? UIView,
+              let source = panel.settingsMenuSource(for: focused) else { return nil }
+        return rail?.settingsMenuNeighbor(of: source, movingRight: movingRight)
+    }
+
+    @discardableResult
+    private func switchSettingsMenu(movingRight: Bool) -> Bool {
+        guard let neighbor = settingsMenuNeighbor(movingRight: movingRight) else { return false }
+        lastSettingsMenuSwitchGesture = MenuPressInterceptor.remoteGestures.count
+        settingsMenuSwitchOffset = movingRight ? -100 : 100
+        defer { settingsMenuSwitchOffset = nil }
+        neighbor.onPress?()
         return true
     }
 
     // MARK: - Subtitle search
 
-    /// Searches while the Subtitles menu stays up, then swaps in the results,
-    /// unless that menu was closed meanwhile.
-    private func searchSubtitles(from row: CardTrackRowButton) {
-        guard let vm = viewModel, subtitleSearchTask == nil else { return }
-        let origin = activeRailPanel
-        row.setTitle(String(localized: "Searching…"))
-        subtitleSearchTask = Task { [weak self, weak vm, weak row] in
-            let results = try? await vm?.searchSubtitles()
-            guard let self else { return }
-            self.subtitleSearchTask = nil
-            row?.setTitle(String(localized: "Search for Subtitles"))
-            guard let vm, let origin, self.activeRailPanel === origin else { return }
-            let found = results ?? []
-            let rows = found.isEmpty
-                ? [CardTrackListView.Row(title: results == nil ? String(localized: "Search Failed") : String(localized: "No Subtitles Found"),
-                                         subtitle: nil, trackId: nil, isSelected: false)]
-                : found.enumerated().map { index, result in
-                    CardTrackListView.Row(title: result.displayTitle, subtitle: result.detail,
-                                          trackId: index, isSelected: false)
-                }
-            _ = self.presentRailPanel(
-                content: CardTrackListView(header: String(localized: "Search Results"), rows: rows, onSelect: { [weak vm, weak self] index in
-                    self?.activeRailPanel?.dismissPanel()
-                    guard let index, let vm else { return }
-                    Task { await vm.installSubtitle(found[index]) }
-                }),
-                width: CardTrackListView.menuWidth, from: self.rail?.subtitlesButton ?? self.view)
+    private func cancelSubtitleSearch() {
+        subtitleSearch?.phase.cancel()
+        subtitleSearch = nil
+        subtitleSearchAction?.title = String(localized: "Search for Subtitles")
+    }
+
+    @discardableResult
+    func searchSubtitles(from row: CardTrackRowButton) -> Task<Void, Never>? {
+        guard let vm = viewModel, let origin = activeRailPanel, origin.isUserInteractionEnabled,
+              row.isDescendant(of: origin) else { return nil }
+        let generation = vm.itemGeneration
+        if let search = subtitleSearch, search.generation == generation {
+            if case let .completed(results) = search.phase {
+                presentSubtitleSearchResults(results, generation: generation)
+            }
+            return nil
         }
+        cancelSubtitleSearch()
+        subtitleSearchAction?.title = String(localized: "Searching…")
+        let task = Task { [weak self, weak vm, weak origin, weak row] in
+            guard !Task.isCancelled else { return }
+            let results = try? await vm?.searchSubtitles()
+            guard let self, !Task.isCancelled, vm?.itemGeneration == generation,
+                  let origin, self.activeRailPanel === origin, origin.isUserInteractionEnabled else { return }
+            self.subtitleSearch = (generation, .completed(results))
+            self.subtitleSearchAction?.title = String(localized: "View Search Results")
+            if let row, row.isDescendant(of: origin) {
+                self.presentSubtitleSearchResults(results, generation: generation)
+            }
+        }
+        subtitleSearch = (generation, .searching(task))
+        return task
+    }
+
+    private func presentSubtitleSearchResults(_ results: [SubtitleSearchResult]?, generation: Int) {
+        let found = results ?? []
+        let rows: [CardTrackListView.Row]
+        if found.isEmpty {
+            let title = results == nil ? String(localized: "Search Failed") : String(localized: "No Subtitles Found")
+            rows = [.init(title: title, subtitle: nil, trackId: nil, isSelected: false)]
+        } else {
+            rows = found.enumerated().map { index, result in
+                CardTrackListView.Row(title: result.displayTitle, subtitle: result.detail,
+                                      trackId: index, isSelected: false)
+            }
+        }
+        presentRailPanel(
+            content: CardTrackListView(header: String(localized: "Search Results"), rows: rows, onSelect: { [weak self] index in
+                self?.activeRailPanel?.dismissPanel()
+                guard let index, let vm = self?.viewModel else { return }
+                Task {
+                    guard vm.itemGeneration == generation else { return }
+                    await vm.installSubtitle(found[index])
+                }
+            }),
+            width: CardTrackListView.menuWidth, from: rail?.subtitlesButton ?? view,
+            allowsSettingsMenuSwitch: false)
     }
 
     // MARK: - Full description
 
     private var descriptionOverlay: PlayerDescriptionOverlayView?
+    private weak var descriptionSource: UIView?
 
-    /// AVKit puts the controls away and shows the whole summary over a dim.
-    private func presentDescription(_ text: String) {
+    private func descriptionFocusTarget(in container: UIView) -> UIView? {
+        guard let descriptionSource, descriptionSource.isDescendant(of: container),
+              descriptionSource.canBecomeFocused else { return nil }
+        return descriptionSource
+    }
+
+    private func presentDescription(_ text: String, returningTo source: UIView) {
         guard let vm = viewModel, descriptionOverlay == nil else { return }
-        let overlay = PlayerDescriptionOverlayView(text: text)
+        let overlay = PlayerDescriptionOverlayView(text: text, glassEffect: makeVODCardGlassEffect())
         overlay.frame = view.bounds
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.accessibilityViewIsModal = true
         view.addSubview(overlay)
         descriptionOverlay = overlay
-        // Holds the paused poster and the remote's seek path, as a panel does.
-        vm.isRailPanelOpen = true
-        vm.showControls = false
+        descriptionSource = source
+        if let panel = activeRailPanel, source.isDescendant(of: panel) {
+            panel.descriptionFocusOverlay = overlay
+            vm.isRailPanelOpen = true
+        }
+        restartPaneIdleTimer()
+        overlay.layoutIfNeeded()
         overlay.fadeIn()
         setNeedsFocusUpdate()
         updateFocusIfNeeded()
@@ -1137,12 +1269,17 @@ class PlayerContainerViewController: UIViewController {
     private func dismissDescription() {
         guard let overlay = descriptionOverlay else { return }
         descriptionOverlay = nil
+        activeRailPanel?.descriptionFocusOverlay = nil
         viewModel?.isRailPanelOpen = activeRailPanel != nil
-        overlay.fadeOut { [weak self] in
-            overlay.removeFromSuperview()
-            self?.setNeedsFocusUpdate()
-            self?.updateFocusIfNeeded()
+        overlay.isUserInteractionEnabled = false
+        overlay.accessibilityViewIsModal = false
+        overlay.fadeOut { [weak overlay] in
+            overlay?.removeFromSuperview()
         }
+        setNeedsFocusUpdate()
+        updateFocusIfNeeded()
+        descriptionSource = nil
+        restartPaneIdleTimer()
     }
 
     // MARK: - Info pane
@@ -1170,6 +1307,16 @@ class PlayerContainerViewController: UIViewController {
 
     /// The tab the open pane shows, nil when no pane is open.
     private var openPaneTab: PaneTab?
+    private var paneTabArrivalGesture: Int?
+    private var paneExitGesture: Int?
+    private var toolboxTimelineArrivalGesture: Int?
+
+    private var timelineForPaneExitGesture: ScrubberFocusProxyView? {
+        guard paneExitGesture == MenuPressInterceptor.remoteGestures.count,
+              activeRailPanel == nil, viewModel?.showControls == true,
+              let scrubberProxy, scrubberProxy.canBecomeFocused else { return nil }
+        return scrubberProxy
+    }
 
     private func paneTab(for pill: PlayerInfoPillButton) -> PaneTab? {
         guard let rail else { return nil }
@@ -1194,14 +1341,14 @@ class PlayerContainerViewController: UIViewController {
     }
 
     /// Opens AVKit's info pane on `tab`, or switches an open one to it.
-    private func presentPane(_ tab: PaneTab) {
-        guard let rail, let vm = viewModel, let content = paneContent(tab, vm: vm) else { return }
+    private func presentPane(_ tab: PaneTab, arrivalGesture: Int? = nil) {
+        guard let rail, let vm = viewModel, let tabPill = pill(for: tab), !tabPill.isHidden,
+              let content = paneContent(tab, vm: vm) else { return }
         let openPane = activeRailPanel?.isPane == true ? activeRailPanel : nil
         if openPane == nil {
             guard rail.alpha > 0.5, !vm.isScrubbing else { return }
             activeRailPanel?.dismissPanel()
         }
-        guard let tabPill = pill(for: tab) else { return }
         // Insights' sub-tabs go on the pill row; Up from its content returns to the shown one.
         let insights = content.view as? InsightsPanelContainerView
         let subTabs = insights.map { $0.availableTabs.count > 1 ? $0.availableTabs : [] } ?? []
@@ -1218,6 +1365,8 @@ class PlayerContainerViewController: UIViewController {
             riders: [progressBar].compactMap { $0 }, replacing: openPane)
         panelRef = panel
         openPaneTab = tab
+        if let arrivalGesture { paneTabArrivalGesture = arrivalGesture }
+        rail.rememberPaneEntry(tabPill)
         rail.setSelectedPill(tabPill)
         (content.view as? PlayerCardRowView)?.scrollToCurrent()
         adoptRailPanel(panel)
@@ -1227,8 +1376,8 @@ class PlayerContainerViewController: UIViewController {
         switch tab {
         case .info:
             let meta = vm.metadata
+            let summary = meta.summary
             var badges: [String] = []
-            if let rating = meta.displayContentRating { badges.append(rating) }
             // No SD badge: Apple's TV app has none.
             switch meta.Media?.first?.videoResolution?.lowercased() {
             case "4k", "2160": badges.append("4K")
@@ -1236,14 +1385,31 @@ class PlayerContainerViewController: UIViewController {
             default: break
             }
             if meta.hasDolbyVision { badges.append("Dolby Vision") } else if meta.hasHDR { badges.append("HDR") }
+            if vm.infoHasAtmos { badges.append("Atmos") }
             if !vm.subtitleTracks.isEmpty { badges.append("CC") }
+            let artwork = vm.infoArtworkURLs
+            let episodeLabel: String? = if meta.type == "episode", let season = meta.parentIndex, let episode = meta.index {
+                String(localized: "S\(season), E\(episode)")
+            } else {
+                nil
+            }
             let card = PlayerInfoCardView(content: .init(
-                posterURL: vm.nowPlayingArtworkURL,
-                title: meta.type == "episode" ? (meta.grandparentTitle ?? vm.title) : vm.title,
-                summary: meta.summary,
-                genre: meta.Genre?.first?.tag,
-                runtimeMinutes: meta.duration.map { $0 / 60000 },
-                badges: badges))
+                posterURL: artwork.first,
+                title: vm.infoTitle,
+                summary: summary,
+                genre: vm.infoGenre,
+                runtime: meta.duration.map { MediaDetailChromeView.formatRuntime(TimeInterval($0) / 1000) },
+                badges: badges,
+                layout: .adaptiveArtwork,
+                fallbackPosterURLs: Array(artwork.dropFirst()),
+                episodeLabel: episodeLabel,
+                ageRating: meta.displayContentRating,
+                reviewRating: vm.infoReviewRating), loadGenre: meta.type == "episode" ? { [weak vm] in
+                    await vm?.resolvedInfoGenre()
+                } : nil, loadRating: vm.needsInfoReviewRating ? { [weak vm] in
+                    guard let vm else { throw CancellationError() }
+                    return try await vm.resolvedInfoReviewRating()
+                } : nil)
             card.onFromBeginning = { [weak self, weak vm] in
                 self?.activeRailPanel?.dismissPanel()
                 vm?.endReplayWindow(reason: "from beginning")
@@ -1252,20 +1418,18 @@ class PlayerContainerViewController: UIViewController {
                     vm?.resume()
                 }
             }
-            card.onExpandSummary = { [weak self, weak vm] _ in
-                guard let vm else { return }
-                self?.presentDescription(vm.metadata.summary ?? "")
+            card.onExpandSummary = { [weak self] source in
+                self?.presentDescription(summary ?? "", returningTo: source)
             }
             return (card, nil)
 
         case .chapters:
             let chapters = vm.metadata.Chapter ?? []
             guard !chapters.isEmpty else { return nil }
-            let now = vm.currentTime
+            let active = ChapterNavigator.activeIndex(at: vm.currentTime, duration: vm.duration, chapters: chapters)
             let cards = chapters.enumerated().map { index, chapter -> PlayerCardRowView.Card in
                 let start = TimeInterval(chapter.startTimeOffset ?? 0) / 1000
-                let end = chapter.endTimeOffset.map { TimeInterval($0) / 1000 } ?? .infinity
-                let watching = now >= start && now < end
+                let watching = active == index
                 return PlayerCardRowView.Card(
                     imageURL: vm.chapterThumbnailURL(chapter),
                     stillLoader: { [weak vm] in await vm?.chapterStill(at: start) },
@@ -1319,7 +1483,7 @@ class PlayerContainerViewController: UIViewController {
                 cast: insightsCastCache,
                 trivia: insightsTriviaCache,
                 suppressedTriviaIDs: suppressedTriviaIDsCache)
-            insights.onReadBio = { [weak self] in self?.presentDescription($0) }
+            insights.onReadBio = { [weak self] text, source in self?.presentDescription(text, returningTo: source) }
             return (insights, nil)
 
         case .details:
@@ -1332,7 +1496,7 @@ class PlayerContainerViewController: UIViewController {
                                                            enhancementLayer: vm.aetherPlayer?.dolbyVisionEnhancementLayer,
                                                            enhanceDialogue: SystemAudioAdjustment.dialogueSummary,
                                                            upscale: vm.aetherPlayer?.upscaleSummary),
-                statsProvider: statsProvider)
+                statsProvider: statsProvider, glassEffect: makeVODCardGlassEffect())
             return (details, nil)
         }
     }
@@ -1386,7 +1550,11 @@ class PlayerContainerViewController: UIViewController {
             // completion fire after `activeRailPanel` describes a newer panel.
             if self.activeRailPanel === panel {
                 self.activeRailPanel = nil
+                if let panel, let source = self.descriptionSource, source.isDescendant(of: panel) {
+                    self.dismissDescription()
+                }
                 self.openPaneTab = nil
+                self.paneTabArrivalGesture = nil
                 // AVKit returns focus to the bar when a pane closes.
                 if panel?.isPane == true { self.rail?.resetFocusMemory() }
                 self.rail?.setSelectedPill(nil)
@@ -1559,16 +1727,21 @@ class PlayerContainerViewController: UIViewController {
             && !ambient && vm.postVideoState == .hidden
         // A skip with the controls hidden shows the bar alone, as AVKit does.
         let railVisible = chromeVisible && vm.showControls && !vm.isScrubbing
-        if !chromeVisible { progressBar?.clearSkipIndicator() }
+        if !chromeVisible {
+            paneExitGesture = nil
+            toolboxTimelineArrivalGesture = nil
+            progressBar?.clearSkipIndicator()
+        }
 
         // Every appearance of the rail starts on the scrubber; focus memory
         // lasts one visit (an open panel still counts as in the rail).
-        if railVisible && !railWasVisible { rail?.resetFocusMemory() }
+        if railVisible && !railWasVisible {
+            if activeRailPanel?.isPane != true { rail?.restoreAfterPaneAutoHide() }
+            rail?.resetFocusMemory()
+        }
         railWasVisible = railVisible
-        let paused = vm.playbackState == .paused && !ambient && hasPlayedSinceLoad
         // The pause screen carries the title and the time left, so nothing of
         // the chrome stays up under it.
-        let scrubberVisible = chromeVisible
         let railAlpha: CGFloat = railVisible ? 1 : 0
 
         // The proxy is the rail's first focus landing, focusable as soon as the
@@ -1577,6 +1750,7 @@ class PlayerContainerViewController: UIViewController {
         let proxyHasFocus = scrubberProxy?.isFocused == true
         // AVKit's info pane takes the bar's place while it is open.
         let paneOpen = activeRailPanel.map { $0.isPane && $0.window != nil } ?? false
+        let timelineVisible = chromeVisible && !paneOpen
         scrubberProxy?.isFocusEnabled = !paneOpen
             && ((railVisible && !isLoading) || (proxyHasFocus && !isLoading && !ambient))
 
@@ -1625,12 +1799,13 @@ class PlayerContainerViewController: UIViewController {
             activeRailPanel?.dismissPanel()
         }
 
+        // PauseScreenView owns full-frame dimming. Tying a dim to playback state
+        // makes it flicker during repeated skips while paused.
         let targets: [(UIView?, CGFloat)] = [
             (chromeScrim, chromeVisible ? 1 : 0),
-            (progressBar, scrubberVisible && !paneOpen ? 1 : 0),
+            (progressBar, timelineVisible ? 1 : 0),
             (rail, railAlpha),
             (skipPill, skipVisible ? 1 : 0),
-            (pausedDimView, paused ? 1 : 0),
             // The pause screen covers the frame the captions belong to (#428).
             (captionOverlay, ambient ? 0 : 1),
         ]
@@ -1642,9 +1817,7 @@ class PlayerContainerViewController: UIViewController {
         let captionLiftChanged = captionOverlay.map { $0.controlsVisible != chromeVisible || $0.paneOpen != paneOpen } ?? false
         captionOverlay?.controlsVisible = chromeVisible
         captionOverlay?.paneOpen = paneOpen
-        // The clock toggle lasts while the controls are up; they come back on play time.
-        // Reset as they appear, not as they fade, so the labels never change on their way out.
-        if chromeVisible, let bar = progressBar, bar.alpha < 0.01 { bar.setShowsClockTimes(false) }
+        if timelineVisible, let bar = progressBar, bar.alpha < 0.01 { bar.setShowsClockTimes(false) }
         guard targetsChanged || ownershipChanged || captionLiftChanged
                 || pillHomeChanged else {
             if anchorNeedsFocusUpdate {
@@ -1653,8 +1826,9 @@ class PlayerContainerViewController: UIViewController {
             }
             return
         }
-        // The pause screen's arrival: the paused dim and chrome hand over to its scrim on its clock.
+        // Fade out the controls as the pause screen's scrim comes in.
         let fade = ambientChanged && ambient ? PauseScreenView.fadeDuration : 0.25
+        let hidesTimeline = !timelineVisible && (progressBar?.alpha ?? 0) > 0
         UIView.animate(withDuration: fade, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
             for (view, alpha) in targets { view?.alpha = alpha }
             if captionLiftChanged { self.captionOverlay?.layoutIfNeeded() }
@@ -1664,6 +1838,10 @@ class PlayerContainerViewController: UIViewController {
                 NSLayoutConstraint.activate(pillInRail ? self.railPillConstraints : self.floatingPillConstraints)
                 self.view.layoutIfNeeded()
             }
+        } completion: { [weak bar = progressBar] finished in
+            // Keep the clock labels through the fade and stop ticking once they're offscreen.
+            guard finished, hidesTimeline, let bar, bar.alpha == 0 else { return }
+            bar.setShowsClockTimes(false)
         }
         // Model alpha is now 1 for a visible pill, so the engine will accept it
         // as a focus target. Re-resolve toward/away from the pill (or off the
@@ -1744,6 +1922,7 @@ class PlayerContainerViewController: UIViewController {
     private func closePauseInsights() {
         guard let panel = pauseInsights else { return }
         pauseInsights = nil
+        if descriptionSource?.isDescendant(of: panel) == true { dismissDescription() }
         pauseScreen?.setPanelUp(false)
         UIView.animate(withDuration: 0.25, animations: { panel.alpha = 0 }) { _ in panel.removeFromSuperview() }
         panel.isUserInteractionEnabled = false
@@ -1804,8 +1983,43 @@ class PlayerContainerViewController: UIViewController {
         }
     }
 
+    override func shouldUpdateFocus(in context: UIFocusUpdateContext) -> Bool {
+        if let next = context.nextFocusedView {
+            if let descriptionOverlay, !next.isDescendant(of: descriptionOverlay) { return false }
+            if context.focusHeading.contains(.down),
+               toolboxTimelineArrivalGesture == MenuPressInterceptor.remoteGestures.count,
+               context.previouslyFocusedView === scrubberProxy,
+               rail?.containsPaneTab(next) == true { return false }
+            if paneTabArrivalGesture == MenuPressInterceptor.remoteGestures.count,
+               let pane = activeRailPanel, pane.isPane {
+                if context.focusHeading.contains(.down), next.isDescendant(of: pane),
+                   context.previouslyFocusedView?.isDescendant(of: pane) != true { return false }
+                if pane.isCloseFocusTarget(next) { return false }
+            }
+            if context.focusHeading.contains(.up), let timeline = timelineForPaneExitGesture,
+               next !== timeline, railOwnsFocus(next) { return false }
+        }
+        return super.shouldUpdateFocus(in: context)
+    }
+
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
+        let gesture = MenuPressInterceptor.remoteGestures.count
+        if context.focusHeading.contains(.down),
+           let scrubberProxy, context.nextFocusedView === scrubberProxy,
+           let previous = context.previouslyFocusedView,
+           rail?.containsToolButton(previous) == true || isDockedSkipPill(previous) {
+            toolboxTimelineArrivalGesture = gesture
+        }
+        if let pane = activeRailPanel, pane.isPane, let next = context.nextFocusedView {
+            if pane.isCloseFocusTarget(next) {
+                paneExitGesture = gesture
+            } else if context.focusHeading.contains(.up),
+                      context.previouslyFocusedView?.isDescendant(of: pane) == true,
+                      rail?.containsPaneTab(next) == true {
+                paneTabArrivalGesture = gesture
+            }
+        }
 
         // `controlsFocusActive` ("the rail owns focus") gates all seek input, so
         // drive it from where focus lands. Skip a transient nil destination: a
@@ -1824,6 +2038,16 @@ class PlayerContainerViewController: UIViewController {
             let inPauseInsights = [context.previouslyFocusedView, context.nextFocusedView]
                 .contains { view in pauseInsights.map { view?.isDescendant(of: $0) == true } ?? false }
             if !context.focusHeading.isEmpty && !inPauseInsights { vm.hidePausedPoster() }
+            if activeRailPanel == nil, let scrubberProxy, context.previouslyFocusedView === scrubberProxy,
+               context.focusHeading.contains(.down), let pill = context.nextFocusedView as? PlayerInfoPillButton,
+               let tab = paneTab(for: pill) {
+                let generation = vm.itemGeneration
+                DispatchQueue.main.async { [weak self, weak vm, weak pill] in
+                    guard let self, let pill, vm?.itemGeneration == generation,
+                          self.activeRailPanel == nil, pill.isFocused else { return }
+                    self.presentPane(tab, arrivalGesture: gesture)
+                }
+            }
         }
         restartPaneIdleTimer()
     }
@@ -1831,20 +2055,37 @@ class PlayerContainerViewController: UIViewController {
     private func restartPaneIdleTimer() {
         paneIdleTimer?.invalidate()
         paneIdleTimer = nil
-        guard let pane = activeRailPanel, pane.isPane else { return }
+        guard descriptionOverlay == nil, let pane = activeRailPanel, pane.isPane, openPaneTab != .details else { return }
         // Closes 8s after the last move on the pills; never while focus is in the pane.
         let focused = UIFocusSystem.focusSystem(for: view)?.focusedItem as? UIView
         if focused?.isDescendant(of: pane) == true { return }
-        paneIdleTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                // The full summary is its own screen; closing it moves focus and re-arms.
-                guard let self, let vm = self.viewModel, let pane = self.activeRailPanel, pane.isPane,
-                      self.descriptionOverlay == nil, !vm.isScrubbing else { return }
-                pane.dismissPanel()
-                // AVKit takes the chrome with the pane; paused keeps Rivulet's own rule.
-                if vm.playbackState == .playing { vm.showControls = false }
+        let timer = Timer(timeInterval: UniversalPlayerViewModel.controlsHideDelay, repeats: false) { [weak self, weak pane] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.paneIdleTimer === timer else { return }
+                self.paneIdleTimer = nil
+                guard let vm = self.viewModel, let pane, self.activeRailPanel === pane,
+                      self.descriptionOverlay == nil else { return }
+                let focused = UIFocusSystem.focusSystem(for: self.view)?.focusedItem as? UIView
+                guard focused?.isDescendant(of: pane) != true else { return }
+                switch vm.paneIdleAction(isDetails: self.openPaneTab == .details) {
+                case .keepOpen:
+                    break
+                case .postpone:
+                    self.restartPaneIdleTimer()
+                case .closePane:
+                    pane.dismissPanel()
+                case .hideControls:
+                    vm.autoHideControls()
+                    pane.dismissPanel(hidingControls: true)
+                }
             }
         }
+        paneIdleTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func isDockedSkipPill(_ view: UIView) -> Bool {
+        view === skipPill && rail?.skipPillSlot.isHidden == false
     }
 
     /// The scrubber proxy is a SIBLING of the rail, not a descendant (see the
@@ -1854,8 +2095,8 @@ class PlayerContainerViewController: UIViewController {
         guard let view else { return false }
         if let proxy = scrubberProxy, view === proxy { return true }
         if let rail, view.isDescendant(of: rail) { return true }
-        // The skip pill while it sits in the rail's tool row (#556).
-        if let pill = skipPill, view === pill, rail?.skipPillSlot.isHidden == false { return true }
+        if let overlay = activeRailPanel?.descriptionFocusOverlay, view.isDescendant(of: overlay) { return true }
+        if isDockedSkipPill(view) { return true }
         // A presented panel counts as the rail, or its dismiss loses the button
         // that opened it.
         if let panel = activeRailPanel, panel.window != nil, view.isDescendant(of: panel) { return true }
@@ -1915,7 +2156,7 @@ extension PlayerContainerViewController: PlayerRemoteInputHost {
     var descriptionUp: Bool { descriptionOverlay != nil }
     var controlsVisible: Bool { viewModel?.showControls ?? false }
     var controlsFocusActive: Bool { viewModel?.controlsFocusActive ?? false }
-    var controlsOwnFocus: Bool { viewModel.map { $0.controlsFocusActive || $0.isRailPanelOpen } ?? false }
+    var controlsOwnFocus: Bool { viewModel?.controlsOwnRemoteInput ?? false }
     var scrubberFocused: Bool { scrubberProxy?.isFocused == true }
     var scrubberOwnsFocus: Bool { viewModel?.scrubberOwnsFocus ?? false }
     var panelOwnsPresses: Bool { activeRailPanel?.window != nil }
@@ -1928,8 +2169,15 @@ extension PlayerContainerViewController: PlayerRemoteInputHost {
         withAnimation(.easeOut(duration: 0.25)) { viewModel?.showControls = false }
     }
 
-    func toggleClockTimes() {
-        if let bar = progressBar { bar.setShowsClockTimes(!bar.showsClockTimes) }
+    func advanceTouchClock() -> Bool {
+        guard let vm = viewModel, let bar = progressBar else { return false }
+        if bar.showsClockTimes, vm.playbackState == .playing,
+           vm.pausePresentation == .frame, activeRailPanel == nil {
+            hideControls()
+            return true
+        }
+        bar.setShowsClockTimes(!bar.showsClockTimes)
+        return false
     }
 
     func toggleFill() { viewModel?.fillsScreen.toggle() }
@@ -1941,11 +2189,7 @@ extension PlayerContainerViewController: PlayerRemoteInputHost {
         withAnimation(.easeInOut(duration: 0.25), body)
     }
 
-    /// Whether the rail, tabs included (they hide while loading), was on screen
-    /// before this press, read before anything brings the chrome up: a touch tap,
-    /// Play/Pause, a scrub commit or the player opening show it while focus stays here.
     func contentVerticalBegan() {
-        railWasUpAtVerticalPress = (rail?.alpha ?? 0) > 0.5 && rail?.pillRowView.isHidden == false
         viewModel?.hidePausedPoster()
     }
 
@@ -1956,6 +2200,9 @@ extension PlayerContainerViewController: PlayerRemoteInputHost {
     }
 
     func claimsContentPress(focusedView: UIView, type: UIPress.PressType) -> Bool {
+        if focusedView === scrubberProxy {
+            return type == .downArrow && !controlsVisible && !isScrubbing
+        }
         guard focusedView === skipPill else { return false }
         // Only Left/Right seek behind the floating pill. An Up here is usually the
         // press that just moved focus onto it, so claiming it bounces focus back.
@@ -1976,10 +2223,10 @@ extension PlayerContainerViewController: PlayerRemoteInputHost {
             if landing == .firstTool {
                 if let tool = rail?.firstToolButton { rail?.setFocusLanding(tool) }
                 vm.enterControlsFocus()
-            } else {
-                if let info = rail?.infoButton { rail?.setFocusLanding(info) }
+            } else if let target = rail?.paneEntryPill, let tab = paneTab(for: target) {
+                rail?.setFocusLanding(target)
                 vm.enterControlsFocus()
-                if !railWasUpAtVerticalPress { presentPane(.info) }
+                presentPane(tab, arrivalGesture: MenuPressInterceptor.remoteGestures.count)
             }
             setNeedsFocusUpdate()
             updateFocusIfNeeded()
@@ -2006,6 +2253,7 @@ extension PlayerContainerViewController: PlayerRemoteInputHost {
     /// for this marker (the controls still offer it, #556). A system dismiss has no pill step.
     func closeHostLayer(for source: PlayerBackSource) -> Bool {
         guard let vm = viewModel else { return false }
+        if vm.consumeAutoHideBackGrace() { return true }
         switch source {
         case .menuPress:
             if vm.postVideoState != .hidden {

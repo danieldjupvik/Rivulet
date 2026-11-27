@@ -56,7 +56,7 @@ protocol PlayerRemoteInputHost: AnyObject {
     func showControlsTemporarily()
     func focusControls(on landing: PlayerControlsLanding)
     func hideControls()
-    func toggleClockTimes()
+    func advanceTouchClock() -> Bool
     func toggleFill()
     func cancelScrub()
     /// A shuttle step from the scrubber's own Left/Right hold.
@@ -90,6 +90,7 @@ protocol PlayerRemoteInputHost: AnyObject {
 extension PlayerRemoteInputHost {
     var pauseInsightsUp: Bool { false }
     var skipPillOwnsFocus: Bool { false }
+    func advanceTouchClock() -> Bool { false }
     func chapterSnap() {}
     func animatePlaybackToggle(_ body: () -> Void) { body() }
     func contentVerticalBegan() {}
@@ -199,7 +200,7 @@ final class PlayerRemoteInput: NSObject, UIGestureRecognizerDelegate {
     // MARK: - Setup
 
     /// Mounts the content anchor (above `sibling`, the video) and every recognizer on `view`.
-    func install(in view: UIView, above sibling: UIView?) {
+    func install(in view: UIView, above sibling: UIView?, catchSwipesOutsideAnchor: Bool = false) {
         self.view = view
 
         // The player opens in the content state; enabled before the first focus
@@ -217,7 +218,7 @@ final class PlayerRemoteInput: NSObject, UIGestureRecognizerDelegate {
         // Not while the clickpad is down: a click jolts the touch into a fake swipe.
         // Nor in a ring jog or a swipe-scrub; a swipe that acts here spends the touch.
         contentSwipeBinding = DirectionalInputBinding(
-            gatedSwipesOn: contentAnchor,
+            gatedSwipesOn: catchSwipesOutsideAnchor ? view : contentAnchor,
             directions: [.up, .down],
             shouldHandle: { [weak self] direction in
                 guard let self, !RemoteInputHandler.isClickpadDown,
@@ -251,10 +252,7 @@ final class PlayerRemoteInput: NSObject, UIGestureRecognizerDelegate {
 
         // Double tap zooms, as AVKit's tap-to-zoom does (#589). The single tap
         // waits it out, which is the same short delay AVKit pays.
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleTouchSurfaceDoubleTap))
-        doubleTap.numberOfTapsRequired = 2
-        doubleTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
-        doubleTap.allowedPressTypes = []
+        let doubleTap = SystemVideoZoomGestureRecognizer(target: self, action: #selector(handleTouchSurfaceDoubleTap))
         view.addGestureRecognizer(doubleTap)
         tap.require(toFail: doubleTap)
     }
@@ -445,7 +443,7 @@ final class PlayerRemoteInput: NSObject, UIGestureRecognizerDelegate {
 
     /// Whether a directional or Select press that reached the host belongs to the content-state grammar.
     func contentOwnsPress(_ type: UIPress.PressType) -> Bool {
-        guard let host, !host.postVideoUp, !host.playbackFailed else { return false }
+        guard let host, !host.postVideoUp, !host.playbackFailed, !host.descriptionUp else { return false }
         // A presented rail panel owns its own content's presses.
         if host.panelOwnsPresses { return false }
         guard let view, let focused = UIFocusSystem.focusSystem(for: view)?.focusedItem else { return true }
@@ -602,6 +600,10 @@ final class PlayerRemoteInput: NSObject, UIGestureRecognizerDelegate {
     /// The layer peel for a system dismiss that no press handled. True if it closed something.
     func peelForSystemDismiss() -> Bool {
         guard let host else { return false }
+        if host.descriptionUp {
+            host.closeDescription()
+            return true
+        }
         if host.closeHostLayer(for: .systemDismiss) { return true }
         if host.isScrubbing {
             host.cancelScrub()
@@ -664,9 +666,7 @@ final class PlayerRemoteInput: NSObject, UIGestureRecognizerDelegate {
 
         // With the controls up, a bare tap (not a click) cycles the bar
         // between play time and the clock.
-        if host.controlsVisible, !tapWasClick {
-            host.toggleClockTimes()
-        }
+        if host.controlsVisible, !tapWasClick, host.advanceTouchClock() { return }
         host.showControlsTemporarily()
     }
 

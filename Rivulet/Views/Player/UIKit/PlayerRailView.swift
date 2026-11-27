@@ -117,10 +117,13 @@ final class PlayerRailView: UIView {
     /// Insights' sub-tabs, right-aligned on the pill row while its pane is open.
     private let insightsTabRow = UIStackView()
     private var onInsightsTabFocused: ((Int) -> Void)?
-    /// Down from the bar lands on the first pill, not the nearest one.
+    /// Down from the bar lands on the pane's remembered tab or the first available tab.
     private let pillEntryGuide = UIFocusGuide()
+    private weak var rememberedPanePill: PlayerInfoPillButton?
+    private let controlGlassEffect: UIGlassEffect?
 
-    init() {
+    init(controlGlassEffect: UIGlassEffect? = nil) {
+        self.controlGlassEffect = controlGlassEffect
         super.init(frame: .zero)
 
         // Up from the video lands on the leftmost tool, so the rarely used ones
@@ -130,16 +133,19 @@ final class PlayerRailView: UIView {
         toolRow.alignment = .center
         skipPillSlot.isHidden = true
         skipPillSlot.isUserInteractionEnabled = false
-        [skipPillSlot, multiviewButton, recordButton, goLiveButton, subtitlesButton, audioButton, speedButton, filterButton, qualityButton,
-         watchTogetherButton].forEach {
-            toolRow.addArrangedSubview($0)
+        toolRow.addArrangedSubview(skipPillSlot)
+        [multiviewButton, recordButton, goLiveButton, subtitlesButton, audioButton, speedButton, filterButton, qualityButton,
+         watchTogetherButton].forEach { button in
+            if let controlGlassEffect { button.setGlassEffect(controlGlassEffect) }
+            toolRow.addArrangedSubview(button)
         }
 
         pillRow.axis = .horizontal
         pillRow.spacing = Metrics.pillGap
         pillRow.alignment = .center
-        [infoButton, scoresButton, chaptersButton, upNextButton, detailsButton, insightsButton].forEach {
-            pillRow.addArrangedSubview($0)
+        [infoButton, scoresButton, chaptersButton, upNextButton, detailsButton, insightsButton].forEach { pill in
+            if let controlGlassEffect { pill.setGlassEffect(controlGlassEffect) }
+            pillRow.addArrangedSubview(pill)
         }
         insightsTabRow.axis = .horizontal
         insightsTabRow.spacing = Metrics.subTabGap
@@ -280,6 +286,7 @@ final class PlayerRailView: UIView {
 
     func setUpNextAvailable(_ available: Bool) {
         upNextButton.isHidden = !available
+        updatePillEntryGuide()
     }
 
     /// Uses the Up Next pill as the Live TV channel list: same pill, place and
@@ -294,14 +301,17 @@ final class PlayerRailView: UIView {
 
     func setInsightsAvailable(_ available: Bool) {
         insightsButton.isHidden = !available
+        updatePillEntryGuide()
     }
 
     func setChaptersAvailable(_ available: Bool) {
         chaptersButton.isHidden = !available
+        updatePillEntryGuide()
     }
 
     func setDetailsAvailable(_ available: Bool) {
         detailsButton.isHidden = !available
+        updatePillEntryGuide()
     }
 
     // MARK: - Info pane
@@ -311,7 +321,7 @@ final class PlayerRailView: UIView {
     /// measured from AVKit.
     func setPaneLift(_ lift: CGFloat?, motion: UIViewPropertyAnimator) {
         isPaneOpen = lift != nil
-        updatePillEntryGuide(focusInPills: false)
+        updatePillEntryGuide()
         // The whole rail moves, as AVKit's full-screen container does: rows
         // shifted outside the rail's own frame drop out of sideways focus search.
         let rise = CGAffineTransform(translationX: 0, y: -(lift ?? 0))
@@ -320,6 +330,16 @@ final class PlayerRailView: UIView {
         let fader = UIViewPropertyAnimator(duration: 0.167, timingParameters: fadeCurve)
         fader.addAnimations { self.applyAlphas() }
         fader.startAnimation()
+    }
+
+    func restoreAfterPaneAutoHide() {
+        guard isPaneOpen else { return }
+        isPaneOpen = false
+        updatePillEntryGuide()
+        UIView.performWithoutAnimation {
+            transform = .identity
+            applyAlphas()
+        }
     }
 
     /// Pills a pane can switch between, for the pane's focus fence.
@@ -338,6 +358,7 @@ final class PlayerRailView: UIView {
         onInsightsTabFocused = onFocus
         for (index, title) in titles.enumerated() {
             let tab = PlayerInfoPillButton(title: title, compact: true)
+            if let controlGlassEffect { tab.setGlassEffect(controlGlassEffect) }
             tab.isSelectedTab = index == selected
             insightsTabRow.addArrangedSubview(tab)
         }
@@ -426,6 +447,18 @@ final class PlayerRailView: UIView {
     /// The leftmost tool button on screen, where AVKit lands Up from the video.
     var firstToolButton: UIView? { toolRow.arrangedSubviews.first { !$0.isHidden && $0 !== skipPillSlot } }
 
+    func settingsMenuNeighbor(of source: TransportControlButton, movingRight: Bool) -> TransportControlButton? {
+        let settingsButtons = [subtitlesButton, audioButton, speedButton, filterButton, qualityButton, watchTogetherButton]
+        let buttons = toolRow.arrangedSubviews.compactMap { $0 as? TransportControlButton }.filter { settingsButtons.contains($0) }
+        guard let index = buttons.firstIndex(of: source) else { return nil }
+        let forward = movingRight != (toolRow.effectiveUserInterfaceLayoutDirection == .rightToLeft)
+        func isAvailable(_ button: TransportControlButton) -> Bool {
+            !button.isHidden && button.isEnabled && button.onPress != nil
+        }
+        return forward ? buttons[(index + 1)...].first(where: isAvailable)
+            : buttons[..<index].last(where: isAvailable)
+    }
+
     /// Drop the remembered button so the next chrome appearance starts on the
     /// scrubber again. Called when controls-focus mode ends — "where you left
     /// off" is scoped to one visit to the controls, not to the whole session.
@@ -444,21 +477,40 @@ final class PlayerRailView: UIView {
             pillEntryGuide.bottomAnchor.constraint(equalTo: pillRow.topAnchor),
             pillEntryGuide.heightAnchor.constraint(equalToConstant: 8),
         ])
-        updatePillEntryGuide(focusInPills: false)
+        updatePillEntryGuide()
+    }
+
+    var paneEntryPill: PlayerInfoPillButton? {
+        if let rememberedPanePill, !rememberedPanePill.isHidden { return rememberedPanePill }
+        return pillRow.arrangedSubviews.compactMap { $0 as? PlayerInfoPillButton }.first { !$0.isHidden }
+    }
+
+    func rememberPaneEntry(_ pill: PlayerInfoPillButton?) {
+        rememberedPanePill = pill
+        updatePillEntryGuide()
+    }
+
+    func containsPaneTab(_ view: UIView) -> Bool {
+        view.isDescendant(of: pillRow) || view.isDescendant(of: insightsTabRow)
+    }
+
+    func containsToolButton(_ view: UIView) -> Bool {
+        view.isDescendant(of: toolRow)
     }
 
     /// Live only while focus is outside the pills (Up from a pill must reach
     /// the bar) and no pane has lifted them away from the strip.
-    private func updatePillEntryGuide(focusInPills: Bool) {
-        let first = pillRow.arrangedSubviews.first { !$0.isHidden }
-        pillEntryGuide.preferredFocusEnvironments = first.map { [$0] } ?? []
-        pillEntryGuide.isEnabled = !focusInPills && !isPaneOpen && first != nil
+    private func updatePillEntryGuide(focusedView: UIView? = nil) {
+        let focused = focusedView ?? UIFocusSystem.focusSystem(for: self)?.focusedItem as? UIView
+        let target = paneEntryPill
+        pillEntryGuide.preferredFocusEnvironments = target.map { [$0] } ?? []
+        pillEntryGuide.isEnabled = focused?.isDescendant(of: pillRow) != true && !isPaneOpen && target != nil
     }
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         if let next = context.nextFocusedView {
-            updatePillEntryGuide(focusInPills: next.isDescendant(of: pillRow))
+            updatePillEntryGuide(focusedView: next)
         }
         if let next = context.nextFocusedView, next.isDescendant(of: self), next is UIControl {
             lastFocusedButton = next
@@ -540,6 +592,10 @@ final class PlayerInfoPillButton: UIControl {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setGlassEffect(_ effect: UIGlassEffect) {
+        glass.effect = effect
+    }
 
     func setTitle(_ title: String) {
         label.text = title

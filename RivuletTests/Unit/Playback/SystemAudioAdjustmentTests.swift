@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // Copyright (C) 2025-2026 Bain Gurley
 
+import Testing
+import UIKit
 import XCTest
 @testable import Rivulet
 
@@ -69,5 +71,35 @@ final class SystemAudioAdjustmentTests: XCTestCase {
         XCTAssertEqual(SystemAudioAdjustment.dialogueSummary(levelsAvailable: true, level: .off), "Off")
         XCTAssertEqual(SystemAudioAdjustment.dialogueSummary(levelsAvailable: false, level: .enhance), "On")
         XCTAssertEqual(SystemAudioAdjustment.dialogueSummary(levelsAvailable: false, level: .off), "Off")
+    }
+}
+
+@MainActor
+struct SystemVideoZoomTests {
+    @Test
+    func doubleTapRespectsTheSettingAndRefreshesOnReturn() throws {
+        let suite = "SystemVideoZoomTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = "AVKitTapToZoomEnabled"
+
+        defaults.set(false, forKey: key)
+        let recognizer = SystemVideoZoomGestureRecognizer(target: nil, action: nil, suiteName: suite)
+        #expect(!recognizer.isEnabled)
+        #expect(recognizer.numberOfTapsRequired == 2)
+        #expect(recognizer.allowedPressTypes.isEmpty)
+        #expect(recognizer.allowedTouchTypes == [NSNumber(value: UITouch.TouchType.indirect.rawValue)])
+
+        defaults.set(true, forKey: key)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        #expect(recognizer.isEnabled)
+
+        defaults.set(false, forKey: key)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        #expect(!recognizer.isEnabled)
+
+        defaults.removeObject(forKey: key)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        #expect(recognizer.isEnabled)
     }
 }
