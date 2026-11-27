@@ -628,7 +628,6 @@ private final class UniversalPlaybackInputTarget: PlaybackInputTarget {
 
 struct UniversalPlayerView: View {
     @StateObject private var viewModel: UniversalPlayerViewModel
-    @StateObject private var remoteInput = RemoteInputHandler()
     @State private var inputTarget: UniversalPlaybackInputTarget?
     private let inputCoordinator: PlaybackInputCoordinator
     @Environment(\.dismiss) private var dismiss
@@ -721,34 +720,10 @@ struct UniversalPlayerView: View {
             AppHangContext.setScreen("player")
             // Wire up remote input callbacks
             let target = UniversalPlaybackInputTarget(viewModel: viewModel)
-            target.onResetRemoteInput = { [remoteInput] in
-                remoteInput.reset()
-            }
+            // The ring jog and clickpad state belong to `PlayerRemoteInput`, which the container starts.
+            target.onResetRemoteInput = { RemoteInputHandler.active?.reset() }
             inputTarget = target
             inputCoordinator.target = target
-
-            remoteInput.isPostVideoCheck = { [weak viewModel] in
-                viewModel?.postVideoState != .hidden
-            }
-            remoteInput.isPausedCheck = { [weak viewModel] in
-                viewModel?.playbackState == .paused
-            }
-            remoteInput.isControlsFocusCheck = { [weak viewModel] in
-                viewModel?.controlsOwnRemoteInput ?? false
-            }
-            remoteInput.isScrubberFocusCheck = { [weak viewModel] in
-                viewModel?.scrubberOwnsFocus ?? false
-            }
-            remoteInput.durationCheck = { [weak viewModel] in
-                viewModel?.duration ?? 0
-            }
-            remoteInput.isSkipPillFocusCheck = { [weak viewModel] in
-                viewModel?.skipPillOwnsFocus ?? false
-            }
-            remoteInput.onAction = { [inputCoordinator] action, source in
-                inputCoordinator.handle(action: action, source: source)
-            }
-            remoteInput.startMonitoring()
         }
         .task {
             guard !hasStartedPlayback else { return }
@@ -774,8 +749,6 @@ struct UniversalPlayerView: View {
             viewModel.stopPlayback()
             NowPlayingService.shared.detach()
             Task { await viewModel.reportFinalProgress() }
-            remoteInput.stopMonitoring()
-            remoteInput.reset()
             inputCoordinator.invalidate()
             inputTarget = nil
         }

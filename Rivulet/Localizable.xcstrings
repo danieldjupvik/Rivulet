@@ -45,6 +45,22 @@
         }
       }
     },
+    "%@ left · Ends at %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch %1$@ · Endet um %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ left · Ends at %2$@"
+          }
+        }
+      }
+    },
     "%@ Live TV" : {
       "localizations" : {
         "de" : {
@@ -162,7 +178,16 @@
         }
       }
     },
-    "%@ joined" : {},
+    "%@ joined" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ist beigetreten"
+          }
+        }
+      }
+    },
     "%@ left" : {
       "localizations" : {
         "de" : {
@@ -185,9 +210,36 @@
         }
       }
     },
-    "%@ paused" : {},
-    "%@ pressed play" : {},
-    "%@ skipped" : {},
+    "%@ paused" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hat pausiert"
+          }
+        }
+      }
+    },
+    "%@ pressed play" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hat die Wiedergabe gestartet"
+          }
+        }
+      }
+    },
+    "%@ skipped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hat gespult"
+          }
+        }
+      }
+    },
     "%@ to %@" : {
       "localizations" : {
         "de" : {
@@ -2506,6 +2558,16 @@
         }
       }
     },
+    "Asks who is watching when you open Rivulet after being away: on the Home Screen, in another app or on the screensaver. Instant asks every time." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fragt, wer zuschaut, wenn du nach einer Pause zu Rivulet zurückkehrst: vom Home-Bildschirm, aus einer anderen App oder vom Bildschirmschoner. „Sofort“ fragt jedes Mal."
+          }
+        }
+      }
+    },
     "Aspect Ratio" : {
       "localizations" : {
         "de" : {
@@ -4012,7 +4074,16 @@
         }
       }
     },
-    "Buffering" : {},
+    "Buffering" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puffert"
+          }
+        }
+      }
+    },
     "Building Personalized Recommendations" : {
       "localizations" : {
         "de" : {
@@ -4629,7 +4700,16 @@
         }
       }
     },
-    "Choose how music plays." : {},
+    "Choose how music plays." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lege fest, wie Musik abgespielt wird."
+          }
+        }
+      }
+    },
     "Choose how slideshows in your photo libraries play." : {
       "localizations" : {
         "de" : {
@@ -4766,6 +4846,52 @@
         }
       }
     },
+    "Dolby Vision FEL" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dolby Vision FEL"
+          }
+        }
+      }
+    },
+    "Dual Layer (FEL)" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwei Ebenen (FEL)"
+          }
+        }
+      }
+    },
+    "Episode %lld · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folge %1$lld · %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Episode %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Height Speakers" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Höhenlautsprecher"
+          }
+        }
+      }
+    },
     "iCloud" : {
       "localizations" : {
         "de" : {
@@ -4810,6 +4936,16 @@
         }
       }
     },
+    "Keeps the height channels of object-based soundtracks, lossless over HDMI. Off plays 7.1 without them. Some soundtracks need 7.1.4 or 9.1.6." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behält die Höhenkanäle objektbasierter Tonspuren bei, verlustfrei über HDMI. Bei „Aus“ wird 7.1 ohne sie wiedergegeben. Manche Tonspuren benötigen 7.1.4 oder 9.1.6."
+          }
+        }
+      }
+    },
     "Keeps the height channels of object-based soundtracks, lossless over HDMI. Some soundtracks need 7.1.4 or 9.1.6." : {
       "localizations" : {
         "de" : {
@@ -4832,7 +4968,16 @@
         }
       }
     },
-    "Loudness Leveling" : {},
+    "Loudness Leveling" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lautstärke angleichen"
+          }
+        }
+      }
+    },
     "Leave a Tip" : {
       "localizations" : {
         "de" : {
@@ -4877,8 +5022,26 @@
         }
       }
     },
-    "Plays every track at the same loudness, using the levels your Plex or Jellyfin server measured. Jellyfin measures them once its music library's LUFS scan is on. Emby measures none." : {},
-    "Plays surround soundtracks as stereo with the subwoofer channel mixed into left and right, for 2.1 speakers on a stereo connection." : {},
+    "Plays every track at the same loudness, using the levels your Plex or Jellyfin server measured. Jellyfin measures them once its music library's LUFS scan is on. Emby measures none." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spielt jeden Titel gleich laut ab, mit den Pegeln, die dein Plex- oder Jellyfin-Server gemessen hat. Jellyfin misst sie, sobald der LUFS-Scan seiner Musikmediathek aktiviert ist. Emby misst keine."
+          }
+        }
+      }
+    },
+    "Plays surround soundtracks as stereo with the subwoofer channel mixed into left and right, for 2.1 speakers on a stereo connection." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spielt Surround-Ton als Stereo ab und mischt den Subwoofer-Kanal in links und rechts, für 2.1-Lautsprecher an einem Stereoanschluss."
+          }
+        }
+      }
+    },
     "Profile Picker" : {
       "localizations" : {
         "de" : {
@@ -4948,6 +5111,54 @@
         }
       }
     },
+    "Season %lld · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staffel %1$lld · %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Season %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Season %lld, Episode %lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staffel %1$lld, Folge %2$lld"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Season %1$lld, Episode %2$lld"
+          }
+        }
+      }
+    },
+    "Season %lld, Episode %lld · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Staffel %1$lld, Folge %2$lld · %3$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Season %1$lld, Episode %2$lld · %3$@"
+          }
+        }
+      }
+    },
     "Server Can't Play This" : {
       "localizations" : {
         "de" : {
@@ -4992,7 +5203,16 @@
         }
       }
     },
-    "Stereo with Subwoofer" : {},
+    "Stereo with Subwoofer" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stereo mit Subwoofer"
+          }
+        }
+      }
+    },
     "Still Waiting on the Server" : {
       "localizations" : {
         "de" : {
@@ -6131,7 +6351,16 @@
         }
       }
     },
-    "Couldn't Join" : {},
+    "Couldn't Join" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beitritt nicht möglich"
+          }
+        }
+      }
+    },
     "Couldn't Load" : {
       "localizations" : {
         "de" : {
@@ -6286,7 +6515,16 @@
         }
       }
     },
-    "Couldn't join that room." : {},
+    "Couldn't join that room." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesem Raum konnte nicht beigetreten werden."
+          }
+        }
+      }
+    },
     "Couldn't load the next episode." : {
       "localizations" : {
         "de" : {
@@ -6353,7 +6591,16 @@
         }
       }
     },
-    "Couldn't reach Watch Together. Check your connection and try again." : {},
+    "Couldn't reach Watch Together. Check your connection and try again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch Together ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."
+          }
+        }
+      }
+    },
     "Couldn't reach that server. Check the address and port." : {
       "localizations" : {
         "de" : {
@@ -6442,7 +6689,16 @@
         }
       }
     },
-    "Couldn't start a room." : {},
+    "Couldn't start a room." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Raum konnte nicht gestartet werden."
+          }
+        }
+      }
+    },
     "Couldn't switch streams." : {
       "localizations" : {
         "de" : {
@@ -7079,7 +7335,16 @@
         }
       }
     },
-    "Different Version" : {},
+    "Different Version" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Version"
+          }
+        }
+      }
+    },
     "Dimensions" : {
       "localizations" : {
         "de" : {
@@ -7512,13 +7777,12 @@
         }
       }
     },
-    "Doesn't have this title" : {},
-    "Dolby Vision FEL" : {
+    "Doesn't have this title" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dolby Vision FEL"
+            "value" : "Hat diesen Titel nicht"
           }
         }
       }
@@ -7673,16 +7937,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Drogue, alcool et tabac"
-          }
-        }
-      }
-    },
-    "Dual Layer (FEL)" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zwei Ebenen (FEL)"
           }
         }
       }
@@ -8203,7 +8457,16 @@
         }
       }
     },
-    "Enter the code from the person hosting and select Continue." : {},
+    "Enter the code from the person hosting and select Continue." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib den Code vom Host ein und wähle „Fortfahren“."
+          }
+        }
+      }
+    },
     "Enter the password for this %@ user. Leave it empty if the user has none." : {
       "localizations" : {
         "de" : {
@@ -9909,7 +10172,16 @@
         }
       }
     },
-    "Get a code to share" : {},
+    "Get a code to share" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code zum Teilen erhalten"
+          }
+        }
+      }
+    },
     "Go to Album" : {
       "localizations" : {
         "de" : {
@@ -10310,16 +10582,6 @@
         }
       }
     },
-    "Height Speakers" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Höhenlautsprecher"
-          }
-        }
-      }
-    },
     "Hero" : {
       "localizations" : {
         "de" : {
@@ -10600,7 +10862,16 @@
         }
       }
     },
-    "Host • %@" : {},
+    "Host • %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Host • %@"
+          }
+        }
+      }
+    },
     "How far a single Left press skips back during playback." : {
       "localizations" : {
         "de" : {
@@ -11237,7 +11508,16 @@
         }
       }
     },
-    "Join a Room" : {},
+    "Join a Room" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einem Raum beitreten"
+          }
+        }
+      }
+    },
     "Jumped ahead %lld min. The pause ran past what the rewind buffer holds." : {
       "localizations" : {
         "de" : {
@@ -11322,16 +11602,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Continuer la lecture dans le guide"
-          }
-        }
-      }
-    },
-    "Keeps the height channels of object-based soundtracks, lossless over HDMI. Off plays 7.1 without them. Some soundtracks need 7.1.4 or 9.1.6." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Behält die Höhenkanäle objektbasierter Tonspuren bei, verlustfrei über HDMI. Bei „Aus“ wird 7.1 ohne sie wiedergegeben. Manche Tonspuren benötigen 7.1.4 oder 9.1.6."
           }
         }
       }
@@ -11468,7 +11738,16 @@
         }
       }
     },
-    "Leave Room" : {},
+    "Leave Room" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raum verlassen"
+          }
+        }
+      }
+    },
     "Letterboxd members" : {
       "localizations" : {
         "de" : {
@@ -13335,7 +13614,16 @@
         }
       }
     },
-    "No room has that code. Rooms end when everyone leaves." : {},
+    "No room has that code. Rooms end when everyone leaves." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Raum hat diesen Code. Ein Raum endet, sobald alle ihn verlassen haben."
+          }
+        }
+      }
+    },
     "No stream URL available" : {
       "localizations" : {
         "de" : {
@@ -13380,7 +13668,16 @@
         }
       }
     },
-    "None of your servers have %@." : {},
+    "None of your servers have %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keiner deiner Server hat „%@“."
+          }
+        }
+      }
+    },
     "Not Connected" : {
       "localizations" : {
         "de" : {
@@ -13447,7 +13744,16 @@
         }
       }
     },
-    "Not in Your Library" : {},
+    "Not in Your Library" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht in deiner Mediathek"
+          }
+        }
+      }
+    },
     "Not set" : {
       "localizations" : {
         "de" : {
@@ -13952,8 +14258,26 @@
         }
       }
     },
-    "Only the host can change what's playing." : {},
-    "Only the host can control playback." : {},
+    "Only the host can change what's playing." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur der Host kann ändern, was läuft."
+          }
+        }
+      }
+    },
+    "Only the host can control playback." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur der Host kann die Wiedergabe steuern."
+          }
+        }
+      }
+    },
     "Open in YouTube" : {
       "localizations" : {
         "de" : {
@@ -14572,7 +14896,16 @@
         }
       }
     },
-    "Play Anyway" : {},
+    "Play Anyway" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trotzdem abspielen"
+          }
+        }
+      }
+    },
     "Play Clips in Slideshow" : {
       "localizations" : {
         "de" : {
@@ -15471,6 +15804,23 @@
     },
     "Watch Live" : {
 
+    },
+    "watchTogether.left" : {
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hat den Raum verlassen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%@ left"
+          }
+        }
+      }
     },
     "Widescreen" : {
       "localizations" : {
@@ -16452,7 +16802,16 @@
         }
       }
     },
-    "Ready" : {},
+    "Ready" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereit"
+          }
+        }
+      }
+    },
     "Recap" : {
       "localizations" : {
         "de" : {
@@ -16673,7 +17032,16 @@
         }
       }
     },
-    "Reconnecting to Watch Together…" : {},
+    "Reconnecting to Watch Together…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbindung zu Watch Together wird wiederhergestellt …"
+          }
+        }
+      }
+    },
     "Record" : {
       "localizations" : {
         "de" : {
@@ -17135,7 +17503,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Veröffentlicht"
+            "value" : "Erschienen"
           }
         },
         "el" : {
@@ -17960,8 +18328,26 @@
         }
       }
     },
-    "Room Code" : {},
-    "Room codes have 6 letters and numbers." : {},
+    "Room Code" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raumcode"
+          }
+        }
+      }
+    },
+    "Room codes have 6 letters and numbers." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raumcodes bestehen aus 6 Buchstaben und Ziffern."
+          }
+        }
+      }
+    },
     "Rotten" : {
       "localizations" : {
         "de" : {
@@ -19916,7 +20302,16 @@
         }
       }
     },
-    "Sit This One Out" : {},
+    "Sit This One Out" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesmal aussetzen"
+          }
+        }
+      }
+    },
     "Size" : {
       "localizations" : {
         "de" : {
@@ -20611,7 +21006,16 @@
         }
       }
     },
-    "Start a Room" : {},
+    "Start a Room" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raum starten"
+          }
+        }
+      }
+    },
     "Start from Beginning" : {
       "localizations" : {
         "de" : {
@@ -20678,7 +21082,16 @@
         }
       }
     },
-    "Stay" : {},
+    "Stay" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bleiben"
+          }
+        }
+      }
+    },
     "Step %lld of %lld   ·   %llds" : {
       "localizations" : {
         "de" : {
@@ -21577,7 +21990,16 @@
         }
       }
     },
-    "That room is full or locked." : {},
+    "That room is full or locked." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Raum ist voll oder gesperrt."
+          }
+        }
+      }
+    },
     "That server has no Dispatcharr sign-in. Clear the username and password." : {
       "localizations" : {
         "de" : {
@@ -22320,6 +22742,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Identifiant fourni par votre fournisseur."
+          }
+        }
+      }
+    },
+    "This Copy" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Kopie"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Αυτό το αντίγραφο"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette copie"
           }
         }
       }
@@ -24689,8 +25133,26 @@
         }
       }
     },
-    "Watch Together" : {},
-    "Watch Together ended" : {},
+    "Watch Together" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch Together"
+          }
+        }
+      }
+    },
+    "Watch Together ended" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch Together wurde beendet"
+          }
+        }
+      }
+    },
     "Watch from Beginning" : {
       "localizations" : {
         "de" : {
@@ -25833,8 +26295,50 @@
         }
       }
     },
-    "Your copy is %lld seconds longer than the room's, so it may not line up." : {},
-    "Your copy is %lld seconds shorter than the room's, so it may not line up." : {},
+    "Your copy is %lld seconds longer than the room's, so it may not line up." : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Deine Kopie ist %lld Sekunde länger als die des Raums und läuft daher eventuell nicht genau synchron."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Deine Kopie ist %lld Sekunden länger als die des Raums und läuft daher eventuell nicht genau synchron."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Your copy is %lld seconds shorter than the room's, so it may not line up." : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Deine Kopie ist %lld Sekunde kürzer als die des Raums und läuft daher eventuell nicht genau synchron."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Deine Kopie ist %lld Sekunden kürzer als die des Raums und läuft daher eventuell nicht genau synchron."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Your favorite was %@" : {
       "localizations" : {
         "de" : {
@@ -26843,6 +27347,24 @@
     },
     "%lld unwatched episodes" : {
       "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld ungesehene Folge"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld ungesehene Folgen"
+                }
+              }
+            }
+          }
+        },
         "en" : {
           "variations" : {
             "plural" : {
