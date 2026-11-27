@@ -163,6 +163,11 @@ Standing exceptions:
 - CarPlay and Apple HomeView are iPhone only, and video only: Apple allows one CarPlay category per app, so music is not offered there.
 - Start from Beginning on Live TV is Plex only: Jellyfin, Emby and IPTV have no recorder session to join.
 
+**The iPhone tab bar holds at most five**: Home, Discover, Library, Live TV (only while a Live TV
+source exists, as tvOS's sidebar) and Search. Music libraries sit under Library, never a tab of
+their own. There is no tab setting: iPad users drag a library into the top bar through the
+system's tab customization (`IOSRootView`).
+
 ## Platform Boundary (tvOS / iOS)
 
 Three buildable folders, three memberships. `Rivulet/` is the tvOS app.
@@ -472,15 +477,21 @@ focusless AND single-transport, or when a needed hand-off is press-only.
   `guard presentedViewController == nil else { super.pressesBegan(...); return }`
   and gate its swipe recognizers the same way. Without it, Down on the show
   page's Watched alert also scrolled `PreviewCarouselViewController` behind it.
-- **The VOD player's content state has ONE press owner.**
-  `PlayerContainerViewController`'s `pressesBegan`/`Ended` ("Content-state
-  presses") handle Left/Right/Up/Down/Select whenever no control holds focus,
-  reached from `ContentFocusAnchorView`, an invisible UIKit focus stop. Do not
+- **Both players share one control source: `PlayerRemoteInput`** (`Views/Player/UIKit/`).
+  VOD (`PlayerContainerViewController`) and Live TV (`LiveTVAetherPlayerViewController`)
+  forward presses to it and implement `PlayerRemoteInputHost`; each scrubs through its own
+  `PlayerScrubSession` (VOD over the duration, Live over the timeshift window). How a click,
+  tap, swipe, hold, edge click or ring jog is read lives there once, matching Apple's player
+  (a click pauses and shows the timeline, a tap only shows it, swipes scrub only while
+  paused). Never add input handling to one player alone.
+- **The players' content state has ONE press owner.**
+  `PlayerRemoteInput`'s press grammar handles Left/Right/Up/Down/Select whenever no
+  control holds focus, reached from `ContentFocusAnchorView`, an invisible UIKit focus stop. Do not
   put focus back on a SwiftUI layer there (arrow presses to a focused SwiftUI
   item never reliably reached UIKit, which is why IR/CEC and clicks-only Siri
   Remotes could not skip: #212, #232, #305), and do not add a GameController
   listener for anything that also arrives as a `UIPress`:
-  `RemoteInputHandler` (in `UniversalPlayerView.swift`) acts only on input
+  `RemoteInputHandler` (in `UniversalPlayerView.swift`, started by `PlayerRemoteInput`) acts only on input
   with no `UIPress` (clickpad rotation, shoulders, X). Tap-vs-hold is
   still duration-based (`DirectionalPressDetector`); how a held IR button
   arrives (#212) still wants InputProbe field data.
@@ -732,6 +743,9 @@ Hosting is the player's Watch Together button on every app; joining is the sideb
   for the SDK's own 4% nudge.
 - **The host decides what follows.** `blocksLocalAdvance` stops a guest's Up Next; a
   guest parks on the last frame until the host's `setMedia` re-presents its player.
+- **Copies are found by `TitleCopies`** (`RivuletCore/MediaProvider/`), the same matcher
+  the detail page's Versions lists from (#466): the plex:// guid on Plex, else a title
+  search that `sameTitle` confirms, an episode through its show. Fix matching there once.
 - **A resolver has 30 s in total**, so servers are asked at once with 12 s each
   (`within`). `/library/all?guid=` matches `plex://` guids across sections but NOT
   `imdb://` or `tmdb://`, and rounds durations (6480000 for 6455934, PMS 1.43.5): take
@@ -1240,6 +1254,12 @@ One-time setup: `RivuletCore/Config/Secrets.swift` is gitignored and required fo
 ```bash
 cp RivuletCore/Config/Secrets.swift.template RivuletCore/Config/Secrets.swift
 ```
+
+**TMDB in a self-build**: the TMDB proxy answers only App-Attested App Store builds.
+`Scripts/enthusiast-build.py --tmdb-key <key>` writes the gitignored `RivuletCore/Config/TMDBKey.txt`,
+and `TMDBTransport` then asks TMDB directly through `TMDBDirectAPI`, which mirrors the private
+`tmdb-proxy` worker's routes and reply trimming. A new or changed proxy route must be added there
+too, or self-builds lose that feature (App Store builds are unaffected).
 
 It lives in `RivuletCore/` rather than `Rivulet/Config/` because tvOS and iOS both start Sentry through `RivuletCore/Diagnostics/SentryStartup.swift`. The rest of `Rivulet/Config/` (`TMDBConfig`, `InsightsConfig`, `InputConfig`) is tracked, tvOS-only, and present in a fresh clone. Copying the template is the whole step: every target uses Xcode buildable-folder references (`PBXFileSystemSynchronizedRootGroup`), so files are picked up from disk and never need adding to the project. Both `RivuletApp.swift` and `RivuletiOSApp.swift` read `Secrets.sentryDSN`, so neither app compiles without it.
 
