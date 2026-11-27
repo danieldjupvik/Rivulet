@@ -63,6 +63,7 @@ final class PreviewCarouselViewController: UIViewController {
     /// then also collapse the details when the swipe completes.
     private var touchBeganOnDetailsTopRow = false
     private var touchBeganOnSeasonPills = false
+    private var touchBeganOnFocusAnchor = false
 
     // MARK: - Subviews
 
@@ -73,12 +74,13 @@ final class PreviewCarouselViewController: UIViewController {
     private var collectionView: PinnableCollectionView!
 
     /// The one owner of artwork, behind the collection view; cells are transparent windows.
-    private let backdropPlane = BackdropPlaneView()
+    private let backdropPlane: BackdropPlaneView
 
     /// Invisible focus target. tvOS delivers presses to the focused view, and no
     /// carousel cell is focusable, so without this Menu never reaches our chain
     /// and the system dismisses the modal (UIKIT_FOUNDATIONS §2).
     private let focusAnchor = PreviewFocusAnchorView()
+    private var prefersFocusAnchor = false
 
     /// Single card used for the entry and dismiss morph when there are no row snapshots.
     private let morphSnapshot = PreviewCardView(frame: .zero)
@@ -131,6 +133,7 @@ final class PreviewCarouselViewController: UIViewController {
         sourceItemIDs: [String]? = nil,
         standaloneDetail: Bool = false,
         opensExpanded: Bool = false,
+        themeBackdrop: ThemeBackdrop? = nil,
         onPrepareDismiss: @escaping (PreviewSourceTarget?) -> Void = { _ in },
         onDismiss: @escaping (PreviewSourceTarget?) -> Void
     ) {
@@ -145,6 +148,7 @@ final class PreviewCarouselViewController: UIViewController {
         self.dismissSourceTarget = sourceTarget
         self.standaloneDetail = standaloneDetail
         self.opensExpanded = opensExpanded
+        self.backdropPlane = BackdropPlaneView(themeBackdrop: themeBackdrop)
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
         if standaloneDetail {
@@ -254,12 +258,9 @@ final class PreviewCarouselViewController: UIViewController {
         expandedDetail.onScrollProgress = { [weak self] progress in
             self?.driveHeroLayers(progress)
         }
-        expandedDetail.belowFoldCollection.onLateInitialEpisodeReady = { [weak self] in
+        expandedDetail.belowFoldCollection.onLateInitialFocusReady = { [weak self] in
             guard let self, self.state.phase == .detailsStable, self.expandedDetail.isUserInteractionEnabled,
-                  self.presentedViewController == nil, let window = self.view.window,
-                  let focusSystem = UIFocusSystem.focusSystem(for: window) else { return }
-            let focused = focusSystem.focusedItem
-            guard focused == nil || focused === self.focusAnchor else { return }
+                  self.isFocusOnAnchor else { return }
             self.setNeedsFocusUpdate()
             self.updateFocusIfNeeded()
         }
@@ -457,17 +458,31 @@ final class PreviewCarouselViewController: UIViewController {
         }
     }
 
+    private var isFocusOnAnchor: Bool {
+        guard presentedViewController == nil, let window = view.window,
+              let focusSystem = UIFocusSystem.focusSystem(for: window) else { return false }
+        return focusSystem.focusedItem === focusAnchor
+    }
+
+    private func parkFocusOnAnchor() {
+        prefersFocusAnchor = true
+        defer { prefersFocusAnchor = false }
+        setNeedsFocusUpdate()
+        updateFocusIfNeeded()
+    }
+
     override var preferredFocusEnvironments: [UIFocusEnvironment] {
+        if prefersFocusAnchor { return [focusAnchor] }
         // Details: the below-fold collection. Otherwise the anchor, so Menu reaches us.
         if state.phase == .detailsStable, let env = expandedDetail.belowFoldFocusEnvironment {
-            return [env]
+            return [env, focusAnchor]
         }
         // Expanded hero: focus the centered cell, which redirects into the Play
         // pill. Falls back to the anchor until the detail (action row) loads.
-        if state.phase == .expandedHero,
+        if state.phase == .expandedHero, !collectionView.isHidden,
            let cell = collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? PreviewCardView,
            cell.actionFocusEnvironment != nil {
-            return [cell]
+            return [cell, focusAnchor]
         }
         return [focusAnchor]
     }
@@ -827,7 +842,7 @@ final class PreviewCarouselViewController: UIViewController {
                 if handleDownNavigation() { return }
             case .upArrow:
                 if state.phase == .detailsStable, expandedDetail.focusIsOnPills,
-                   !(press.responder is SeasonPillView) { return }
+                   !(press.responder is SeasonPillView), !isFocusOnAnchor { return }
                 if handleUpNavigation() { return }
             default:
                 break
@@ -866,10 +881,10 @@ final class PreviewCarouselViewController: UIViewController {
 
     /// Up: episodes → pills → hero → carousel.
     @discardableResult
-    private func handleUpNavigation() -> Bool {
+    func handleUpNavigation() -> Bool {
         // Only the top of the details is ours; from a lower row the engine moves up one row.
         if state.phase == .detailsStable {
-            if expandedDetail.focusIsOnPills {
+            if isFocusOnAnchor || expandedDetail.focusIsOnPills {
                 returnToHeroFromBelowFold()
                 return true
             }
@@ -1115,6 +1130,7 @@ final class PreviewCarouselViewController: UIViewController {
         case .up:
             if state.phase == .expandedHero { return true }
             if state.phase == .detailsStable {
+                if touchBeganOnFocusAnchor, isFocusOnAnchor { return true }
                 if expandedDetail.hasSeasonPills { return touchBeganOnSeasonPills && expandedDetail.focusIsOnPills }
                 return touchBeganOnDetailsTopRow
                     && (expandedDetail.focusIsOnPills || expandedDetail.focusIsOnEpisodes)
@@ -1334,9 +1350,10 @@ final class PreviewCarouselViewController: UIViewController {
     }
 
     /// Down from the expanded hero: hands focus in once the thumbnail is visible, while the slide settles.
-    private func enterBelowFold() {
+    func enterBelowFold() {
         guard state.phase == .expandedHero else { return }
         state.markDetailsStable()
+        parkFocusOnAnchor()
         // Always enter on the episodes, never stale on the pills.
         expandedDetail.detailsFocusTarget = .episodes
         expandedDetail.setBelowFoldScrollActive(true)
@@ -1358,27 +1375,24 @@ final class PreviewCarouselViewController: UIViewController {
     }
 
     /// Up from the top of the below-fold: focus back to the hero, collection back to its peek.
-    private func returnToHeroFromBelowFold() {
+    func returnToHeroFromBelowFold() {
         guard state.phase == .detailsStable else { return }
         state.returnToExpandedHero()
+        parkFocusOnAnchor()
         // Before the focus update, so focus can land on the hero Play button.
         (collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? PreviewCardView)?
             .setChromeActionRowFocusable(true)
         // Keep the hero coupled to collection scrolling until the return slide ends.
         expandedDetail.setBelowFoldInteractive(false)
-        let animated = !UIAccessibility.isReduceMotionEnabled
-        if animated {
-            setNeedsFocusUpdate()
-            updateFocusIfNeeded()
-        }
+        setNeedsFocusUpdate()
+        updateFocusIfNeeded()
         expandedDetail.belowFoldCollection.slideToHeroRest(
-            animated: animated, travelDistance: expandedDetail.heroTravelDistance) { [weak self] in
+            animated: true, travelDistance: expandedDetail.heroTravelDistance) { [weak self] in
             guard let self else { return }
             self.expandedDetail.setBelowFoldScrollActive(false)
-            if !animated {
-                self.setNeedsFocusUpdate()
-                self.updateFocusIfNeeded()
-            }
+            guard self.state.phase == .expandedHero, self.isFocusOnAnchor else { return }
+            self.setNeedsFocusUpdate()
+            self.updateFocusIfNeeded()
         }
     }
 
@@ -1387,10 +1401,9 @@ final class PreviewCarouselViewController: UIViewController {
     private func driveHeroLayers(_ progress: CGFloat) {
         let p = max(0, min(1, progress))
         blurOverlay.update(progress: p)
-        let reduceMotion = UIAccessibility.isReduceMotionEnabled
-        let offset = reduceMotion ? 0 : -p * expandedDetail.heroTravelDistance
+        let offset = -p * expandedDetail.heroTravelDistance
         (collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? PreviewCardView)?
-            .setHeroChrome(alpha: reduceMotion ? 1 - p : 1, offset: offset)
+            .setHeroChromeOffset(offset)
     }
 
     /// Reverse of `expandCurrentCard`, on the same curve.
@@ -1525,6 +1538,7 @@ extension PreviewCarouselViewController: UIGestureRecognizerDelegate {
     /// handler. Vertical: `verticalSwipeWouldNavigate`. Horizontal: only while the carousel owns input.
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === verticalSwipeRecognizers.first {
+            touchBeganOnFocusAnchor = state.phase == .detailsStable && isFocusOnAnchor
             touchBeganOnSeasonPills = state.phase == .detailsStable && expandedDetail.focusIsOnPills
             touchBeganOnDetailsTopRow = state.phase == .detailsStable
                 && (expandedDetail.focusIsOnPills || expandedDetail.focusIsOnEpisodes)

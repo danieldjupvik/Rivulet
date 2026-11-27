@@ -113,19 +113,22 @@ SeasonPillView now separates background and title transforms. Focus grows the
 background by 8 points in each dimension while uniformly scaling the title by
 the width-derived factor, without changing the control's layout frame. Layout
 updates recompute the transforms so focused resizing and unfocus reset correctly.
-Padding is 30 points; the font is preferred Body semibold across states and
-updates for content-size changes. Semantic title colors and selected-capsule
-suppression while another season is focused follow the recovered state policy.
-Focus effects remain within the public focus animation coordinator.
+After the layout sync, Rivulet uses 32 points of padding on each side and a
+fixed 29-point system font. The title is semibold when focused or selected and
+medium otherwise. Title colors are black when focused, white on the selected
+capsule, and white at 52% opacity otherwise. The selected capsule is hidden
+while another season has focus. The public UIKit focus animation coordinator
+still drives these effects.
 
 The white background fills are retained as an explicit material approximation.
 Resting Y and transition travel are unchanged: exact page-specific movement still
 needs active layout inputs or matching runtime measurements. No private blur
 styles or guessed replacement travel distances were introduced.
 
-All 3,616 tests passed (3,699 executions, zero failures/skips), including focus
-handoff and focused resize/reset cases. SwiftLint found zero violations. Results:
+In the 14 November follow-up, all 3,616 tests passed (3,699 executions, zero
+failures or skips), including focus handoff and focused resize/reset cases.
+SwiftLint found zero violations. Results:
 `/private/tmp/rivulet-season-focus-verified-20261114.xcresult`. Xcode built,
 installed and launched the updated app on Stue (PID546); log:
 `/var/folders/bf/h64vt90x6ng70m3_wqd7dtb80000gn/T/ActionArtifacts/default/RunProject/RunProject-Log-20261114-223927.txt`.
-This confirms build/test/install, not full visual parity. Implementation changes remain uncommitted.
+Full visual parity remains unverified.

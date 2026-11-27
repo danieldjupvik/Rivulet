@@ -11,10 +11,12 @@ final class RoundedPosterTests: XCTestCase {
     private func pixel(_ image: UIImage, x: Int, y: Int) -> [UInt8] {
         let cg = image.cgImage!
         var pixel = [UInt8](repeating: 0, count: 4)
-        let ctx = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                            space: CGColorSpaceCreateDeviceRGB(),
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)!
-        ctx.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
+        pixel.withUnsafeMutableBytes { buffer in
+            let info = CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info)!
+            context.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
+        }
         return pixel
     }
 
@@ -137,11 +139,13 @@ struct CastArtworkTests {
     private func alpha(_ image: UIImage, x: Int, y: Int) -> UInt8 {
         guard let cgImage = image.cgImage else { return 0 }
         var pixel = [UInt8](repeating: 0, count: 4)
-        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                space: CGColorSpaceCreateDeviceRGB(),
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        context?.draw(cgImage, in: CGRect(x: -x, y: y - cgImage.height + 1,
-                                         width: cgImage.width, height: cgImage.height))
+        pixel.withUnsafeMutableBytes { buffer in
+            let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                    space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            context?.draw(cgImage, in: CGRect(x: -x, y: y - cgImage.height + 1,
+                                             width: cgImage.width, height: cgImage.height))
+        }
         return pixel[3]
     }
 }

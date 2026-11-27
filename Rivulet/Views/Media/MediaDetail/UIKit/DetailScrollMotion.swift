@@ -15,6 +15,11 @@ struct DetailScrollMotion {
         lastTime = time
     }
 
+    mutating func retarget(to target: Double, shiftingPositionBy delta: Double) {
+        position += delta
+        self.target = target
+    }
+
     mutating func advance(at time: CFTimeInterval) -> Bool {
         guard time.isFinite, time > lastTime else { return false }
         let milliseconds = ((time - lastTime) * 1000).rounded(.towardZero)

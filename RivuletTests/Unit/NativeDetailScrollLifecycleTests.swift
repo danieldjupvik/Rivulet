@@ -36,6 +36,40 @@ struct NativeDetailScrollLifecycleTests {
         #expect(collection.isScrollEnabled)
     }
 
+    @Test(arguments: [false, true])
+    func activeSlideLandsAtTheNewRestWhenLogoHeightChanges(returning: Bool) throws {
+        let (view, collection) = try makeView()
+        if returning { view.slideToDetailsTop(animated: false) }
+        let start = CACurrentMediaTime()
+        var completed = false
+        if returning {
+            view.slideToHeroRest(animated: true) { completed = true }
+        } else {
+            view.slideToDetailsTop(animated: true, completion: { completed = true })
+        }
+        for frame in 1...8 { view.advanceSlide(at: start + Double(frame) / 60) }
+        try #require(completed == false)
+
+        let offset = collection.contentOffset.y + collection.adjustedContentInset.top
+        let halfPixel = 0.5 / max(1, collection.traitCollection.displayScale)
+        view.logoHeight = 60
+        #expect(abs(collection.contentOffset.y + collection.adjustedContentInset.top - offset) <= halfPixel)
+        for frame in 9...240 { view.advanceSlide(at: start + Double(frame) / 60) }
+        try #require(completed)
+
+        let expected = returning ? 0 : view.detailsRestOff
+        #expect(abs(collection.contentOffset.y + collection.adjustedContentInset.top - expected) <= halfPixel)
+    }
+
+    @Test func lateLogoKeepsTheSettledDetailsAtRest() throws {
+        let (view, collection) = try makeView()
+        view.slideToDetailsTop(animated: false)
+        let originalRest = view.detailsRestOff
+        view.logoHeight = 60
+        try #require(view.detailsRestOff != originalRest)
+        #expect(abs(collection.contentOffset.y + collection.adjustedContentInset.top - view.detailsRestOff) < 0.5)
+    }
+
     @Test func resetCancelsCustomSlideAndRestoresNativeScrolling() throws {
         let (view, collection) = try makeView()
         var staleCompletion = false
@@ -248,7 +282,7 @@ struct DetailMotionTests {
         }
     }
 
-    @Test(arguments: [BelowFoldSectionKind.cast, .trailers, .extras], [false, true])
+    @Test(arguments: [BelowFoldSectionKind.cast, .trailers, .extras, .about, .related, .collection], [false, true])
     func primaryRowsFinishAtTheirNativeFocusDestination(primary: BelowFoldSectionKind, animated: Bool) async throws {
         let provider = StubMediaProvider(id: "primary-landing-\(primary)-\(animated)")
         let title = item("title", kind: .movie, providerID: provider.id)
@@ -262,6 +296,13 @@ struct DetailMotionTests {
             provider.detailResult?.extras = [MediaItemDetail.Extra(
                 id: "extra", title: "Extra", thumbnailURL: nil, duration: nil,
                 playbackKey: "extra", providerID: provider.id)]
+        }
+        let poster = item("poster", kind: .movie, providerID: provider.id)
+        if primary == .related {
+            provider.relatedContent = RelatedContent(items: [poster], collection: nil)
+        } else if primary == .collection {
+            provider.relatedContent = RelatedContent(
+                items: [], collection: CollectionRow(title: "Collection", members: [poster], collection: nil))
         }
         MediaProviderRegistry.shared.register(provider)
         defer { MediaProviderRegistry.shared.unregister(providerID: provider.id) }
@@ -281,10 +322,12 @@ struct DetailMotionTests {
         view.layoutIfNeeded()
         collection.layoutIfNeeded()
         let path = IndexPath(item: 0, section: 0)
-        let header = try #require(collection.supplementaryView(
-            forElementKind: UICollectionView.elementKindSectionHeader, at: path))
+        let header = collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: path)
         let heroRest = view.heroTravelDistance - below.detailsRestOff
-        #expect(abs(header.transform.ty - heroRest) < 0.5)
+        if primary == .cast || primary == .trailers || primary == .extras {
+            let header = try #require(header)
+            #expect(abs(header.transform.ty - heroRest) < 0.5)
+        }
         view.setBelowFoldScrollActive(true)
         var completed = false
         below.slideToDetailsTop(animated: animated, travelDistance: view.heroTravelDistance,
@@ -294,12 +337,63 @@ struct DetailMotionTests {
         try #require(completed)
         collection.layoutIfNeeded()
         let cell = try #require(collection.cellForItem(at: path))
-        let target = try #require(collection.restingOffset(for: cell))
+        let focusCell: UICollectionViewCell
+        if let shelf = cell as? ShelfRowCell {
+            shelf.layoutIfNeeded()
+            shelf.rowCollectionView.layoutIfNeeded()
+            focusCell = try #require(shelf.rowCollectionView.cellForItem(at: path))
+        } else {
+            focusCell = cell
+        }
+        let target = try #require(collection.restingOffset(for: focusCell))
         #expect(abs(target.y - collection.contentOffset.y) < 0.5,
                 "The next horizontal focus move must not correct the primary row's vertical landing")
+        #expect(view.scrollProgress == 1)
         below.slideToHeroRest(animated: false)
         view.setBelowFoldScrollActive(false)
-        #expect(abs(header.transform.ty - heroRest) < 0.5)
+        if let header { #expect(abs(header.transform.ty - heroRest) < 0.5) }
+    }
+
+    @Test(arguments: [false, true])
+    func lateLogoPreservesHeroProgressMidSlide(returning: Bool) throws {
+        let view = ExpandedDetailContainerView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        view.layoutIfNeeded()
+        let below = view.belowFoldCollection
+        view.setBelowFoldScrollActive(true)
+        var updates: [CGFloat] = []
+        view.onScrollProgress = { updates.append($0) }
+        if returning {
+            below.slideToDetailsTop(animated: false)
+            below.slideToHeroRest(animated: true, travelDistance: view.heroTravelDistance)
+        } else {
+            below.slideToDetailsTop(animated: true, travelDistance: view.heroTravelDistance)
+        }
+        let start = CACurrentMediaTime()
+        for frame in 1...16 { below.advanceSlide(at: start + Double(frame) / 60) }
+        let progress = try #require(updates.last)
+        try #require(progress > 0 && progress < 1)
+
+        let oldRest = below.detailsRestOff
+        updates.removeAll()
+        below.logoHeight = 60
+        try #require(below.detailsRestOff > oldRest)
+        #expect(updates == [progress])
+
+        for frame in 17...240 { below.advanceSlide(at: start + Double(frame) / 60) }
+        #expect(updates.last == (returning ? 0 : 1))
+        #expect(zip(updates, updates.dropFirst()).allSatisfy { returning ? $0 >= $1 : $0 <= $1 })
+    }
+
+    @Test func lateLogoDuringPeekDoesNotNotifyTheHero() throws {
+        let view = ExpandedDetailContainerView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        view.layoutIfNeeded()
+        var progressUpdates: [CGFloat] = []
+        view.onScrollProgress = { progressUpdates.append($0) }
+        let originalRest = view.belowFoldCollection.detailsRestOff
+        view.belowFoldCollection.logoHeight = 60
+
+        try #require(view.belowFoldCollection.detailsRestOff != originalRest)
+        #expect(progressUpdates.isEmpty)
     }
 
     @Test func seasonSelectorDisappearsBeforeItsReturnTravelEnds() throws {

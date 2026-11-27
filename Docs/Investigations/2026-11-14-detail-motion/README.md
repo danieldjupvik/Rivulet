@@ -24,11 +24,11 @@ build is installed and running on Stue.
 [The geometry and focus follow-up](SEASON_GEOMETRY_RE.md) recovers additive
 8-point focus growth, separate title/background transforms and shared-parent
 peeking compensation. It also records why exact page-specific starting position
-and travel are still unresolved. The subsequent implementation separates capsule
-and title scaling, uses semantic Body semibold text and 30-point padding, and
-suppresses the selected capsule while another season has focus. Background fill
-remains an approximation; the unresolved travel correction is unchanged.
-All 3,616 tests passed (3,699 executions), lint is clean, and this updated build
+and travel are still unresolved. Rivulet retains separate capsule and title
+scaling and hides the selected capsule while another season has focus. The
+synced layout uses 32-point side padding and fixed 29-point text. Background
+fill remains an approximation.
+The 14 November build passed all 3,616 tests (3,699 executions) and lint, and
 was installed and launched on Stue. Complete visual parity remains unverified.
 
 [The directed investigation](SEASON_SELECTOR_RE.md) identifies the multi-season

@@ -117,10 +117,14 @@ struct SeasonPillFocusTests {
         let x = Int(point.x + snapshotPadding)
         let y = Int(point.y + snapshotPadding)
         var pixel = [UInt8](repeating: 0, count: 4)
-        let context = try #require(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                            space: CGColorSpaceCreateDeviceRGB(),
-                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        context.draw(cgImage, in: CGRect(x: -x, y: y - cgImage.height + 1, width: cgImage.width, height: cgImage.height))
+        try pixel.withUnsafeMutableBytes { buffer in
+            let context = try #require(CGContext(data: buffer.baseAddress, width: 1, height: 1,
+                                                bitsPerComponent: 8, bytesPerRow: 4,
+                                                space: CGColorSpaceCreateDeviceRGB(),
+                                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(cgImage, in: CGRect(x: -x, y: y - cgImage.height + 1,
+                                             width: cgImage.width, height: cgImage.height))
+        }
         return pixel[3]
     }
 }

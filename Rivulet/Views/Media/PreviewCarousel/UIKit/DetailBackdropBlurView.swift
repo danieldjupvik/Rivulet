@@ -6,6 +6,7 @@ import UIKit
 final class DetailBackdropBlurView: UIView {
     private let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .dark))
     private let effectMask = UIView()
+    private var lastProgress: CGFloat?
 
     init() {
         super.init(frame: .zero)
@@ -25,6 +26,8 @@ final class DetailBackdropBlurView: UIView {
 
     func update(progress: CGFloat) {
         let p = max(0, min(1, progress))
+        guard p != lastProgress || effectMask.frame != effectView.bounds else { return }
+        lastProgress = p
         isHidden = p == 0
         effectMask.backgroundColor = UIColor.white.withAlphaComponent(p)
         applyMask()

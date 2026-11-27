@@ -302,12 +302,11 @@ struct DetailBackdropBlurTests {
 
     @Test func renderedMidpointBlendsSharpAndBlurredArtworkInBothDirections() throws {
         let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previousWindow = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         let host = UIViewController()
         window.rootViewController = host
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true; previousWindow?.makeKey() }
+        window.isHidden = false
+        defer { window.isHidden = true }
         let frame = host.view.bounds
         let pattern = UIGraphicsImageRenderer(size: frame.size, format: .layeredArtwork(scale: 1)).image { context in
             let colors: [UIColor] = [.red, .yellow, .cyan, .blue, .white, .black]
@@ -357,22 +356,49 @@ struct DetailBackdropBlurTests {
                 "The same progress must render consistently on entry and return")
     }
 
-    @Test func videoStartingAndStoppingMidSlideKeepsTheSameFade() async throws {
+    @Test func carouselKeepsTheSameFadeWhenVideoStartsAndStopsMidSlide() async throws {
         let bundle = Bundle(for: FixtureBundle.self)
         let file = try #require(bundle.url(forResource: "hero-theme", withExtension: "mp4")
             ?? bundle.url(forResource: "hero-theme", withExtension: "mp4", subdirectory: "Fixtures"))
         let backdrop = ThemeBackdrop(resolve: { _ in file }, systemAllows: { true }, isForeground: { true })
-        backdrop.isCovered = { false }
-        let artwork = UIImageView(image: image())
-        let video = ThemeVideoBackdropView(backdrop: backdrop)
-        let view = DetailBackdropBlurView()
-        artwork.addSubview(video)
-        artwork.addSubview(view)
+        backdrop.isSuspended = true
+        let item = MediaItem(
+            ref: MediaItemRef(providerID: "detail-backdrop-test", itemID: "title"), kind: .movie,
+            title: "Title", sortTitle: nil, overview: nil, year: nil, runtime: nil,
+            parentRef: nil, grandparentRef: nil, episodeNumber: nil, seasonNumber: nil, childProgress: nil,
+            userState: MediaUserState(isPlayed: false, viewOffset: 0, isFavorite: false, lastViewedAt: nil),
+            artwork: MediaArtwork(poster: nil, backdrop: nil, thumbnail: nil, logo: nil),
+            parentArtwork: nil, grandparentArtwork: nil
+        )
+        let controller = PreviewCarouselViewController(
+            items: [item], selectedIndex: 0, sourceFrame: .zero, sourceTarget: nil,
+            standaloneDetail: true, themeBackdrop: backdrop, onDismiss: { _ in }
+        )
+        controller.view.frame = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        controller.view.layoutIfNeeded()
+        let detail = try #require(controller.view.subviews.compactMap { $0 as? ExpandedDetailContainerView }.first)
+        let plane = try #require(controller.view.subviews.compactMap { $0 as? BackdropPlaneView }.first)
+        let artwork = try #require(plane.subviews.flatMap(\.subviews).compactMap { $0 as? UIImageView }.first)
+        artwork.image = image()
+        let view = try #require(controller.view.subviews.compactMap { $0 as? DetailBackdropBlurView }.first)
         let effect = try #require(view.subviews.compactMap { $0 as? UIVisualEffectView }.first)
-        view.update(progress: 0.4)
-        backdrop.item = MediaItemRef(providerID: "detail-backdrop-test", itemID: "title")
-        video.setActive(true)
-        defer { video.setActive(false) }
+        let distance = detail.belowFoldCollection.detailsRestOff
+        try #require(distance > 0)
+        detail.setBelowFoldScrollActive(true)
+        func scroll(to progress: CGFloat) {
+            detail.driveScrollProgress(fromCollectionOffset: distance * progress)
+            let opacity = effect.mask?.backgroundColor?.cgColor.alpha ?? -1
+            #expect(abs(opacity - progress) < 0.001)
+            #expect(view.isHidden == (progress == 0))
+            #expect(view.alpha == 1)
+            #expect(effect.alpha == 1)
+            #expect(effect.contentView.subviews.isEmpty)
+        }
+
+        scroll(to: 0.4)
+        try #require(backdrop.isActive && backdrop.item == item.ref)
+        backdrop.isSuspended = false
+        defer { backdrop.isSuspended = true }
 
         let deadline = ContinuousClock.now + .seconds(5)
         while backdrop.layer.opacity < 1 {
@@ -380,26 +406,17 @@ struct DetailBackdropBlurTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         let player = try #require(backdrop.layer.player)
-        #expect(view.alpha == 1)
-        #expect(effect.effect is UIBlurEffect)
         for progress: CGFloat in [0.6, 1, 0.6, 0] {
-            view.update(progress: progress)
-            #expect(view.alpha == 1)
-            #expect(effect.effect is UIBlurEffect)
-            #expect(effect.alpha == 1)
-            #expect(effect.contentView.subviews.isEmpty)
+            scroll(to: progress)
             #expect(backdrop.layer.player === player)
             #expect(player.rate > 0, "The fade must not pause or replace the playing backdrop")
         }
 
-        view.update(progress: 0.4)
-        video.setActive(false)
+        scroll(to: 0.4)
+        backdrop.isSuspended = true
         #expect(backdrop.layer.player == nil)
-        #expect(view.alpha == 1)
-        #expect(effect.effect is UIBlurEffect)
-        #expect(effect.contentView.subviews.isEmpty)
-        view.update(progress: 0)
-        #expect(view.isHidden)
+        scroll(to: 0.6)
+        scroll(to: 0)
     }
 
     @Test func backdropIsReleasedAfterIntermediateProgress() {

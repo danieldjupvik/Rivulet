@@ -332,8 +332,8 @@ final class PreviewCardView: UICollectionViewCell {
     /// the cell redirects focus into Play.
     var actionFocusEnvironment: UIView? { chromeView.playFocusable }
 
-    func setHeroChrome(alpha: CGFloat, offset: CGFloat = 0) {
-        chromeView.chromeAlpha = alpha
+    func setHeroChromeOffset(_ offset: CGFloat) {
+        chromeView.chromeAlpha = 1
         chromeView.transform = CGAffineTransform(translationX: 0, y: offset)
     }
 

@@ -104,6 +104,7 @@ final class CastCell: UIView {
         photoView.image = cached ?? Self.placeholder
         guard let imageURL else { return }
         imageLoadTask = Task { [weak self] in
+            // Even on a rendered cache hit, loading the source schedules a stale-artwork check.
             let image = await CastArtwork.image(for: imageURL, side: side, scale: scale)
             guard !Task.isCancelled, let self, self.imageToken == token, let image else { return }
             if self.photoView.image !== image { self.photoView.image = image }

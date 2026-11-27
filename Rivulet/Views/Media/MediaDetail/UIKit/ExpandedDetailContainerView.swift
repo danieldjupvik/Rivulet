@@ -11,14 +11,13 @@ final class ExpandedDetailContainerView: UIView {
 
     // MARK: - Choreography clock
 
-    private(set) var scrollOffset: CGFloat = 0
+    private var scrollFraction: CGFloat = 0
+    private var progressAnchor: (offset: CGFloat, fraction: CGFloat)?
 
     var scrollProgress: CGFloat {
-        let distance = max(1, belowFoldCollection.detailsRestOff)
-        return min(1, max(0, 1.005 * scrollOffset / distance - 0.0025))
+        min(1, max(0, 1.005 * scrollFraction - 0.0025))
     }
     var heroTravelDistance: CGFloat { max(0, bounds.height - Self.smallLogoTop) }
-    private var belowFoldTitleOpacity: CGFloat { max(0, 2 * scrollProgress - 1) }
 
     /// Drives the layers owned by the VC (blur + chrome).
     var onScrollProgress: ((CGFloat) -> Void)?
@@ -380,9 +379,15 @@ final class ExpandedDetailContainerView: UIView {
         belowFoldCollection.onScroll = { [weak self] off in
             self?.driveScrollProgress(fromCollectionOffset: off)
         }
-        belowFoldCollection.onDetailsTopChanged = { [weak self] in
-            guard let self, !self.belowFoldScrollActive else { return }
-            self.applyHeroProgress(fromOffset: 0)
+        belowFoldCollection.onDetailsTopChanged = { [weak self] off in
+            guard let self else { return }
+            if self.belowFoldScrollActive {
+                // Keep the current hero position, then interpolate to either rest in the new geometry.
+                self.progressAnchor = (offset: off, fraction: self.scrollFraction)
+                self.applyHeroProgress(fromOffset: off)
+            } else {
+                self.applyHeroProgress(fromOffset: 0, notifyHero: false)
+            }
         }
         belowFoldCollection.onSelectSynopsis = { [weak self] d in self?.onSelectSynopsis?(d) }
         belowFoldCollection.onSelectAdvisory = { [weak self] a in self?.onSelectAdvisory?(a) }
@@ -411,18 +416,38 @@ final class ExpandedDetailContainerView: UIView {
         applyHeroProgress(fromOffset: off)
     }
 
-    private func applyHeroProgress(fromOffset off: CGFloat) {
-        scrollOffset = off
-        smallTitleLogo.alpha = belowFoldTitleOpacity
-        seasonsHeader.alpha = belowFoldTitleOpacity
-        belowFoldCollection.firstHeaderAlpha = scrollProgress
+    private func applyHeroProgress(fromOffset off: CGFloat, notifyHero: Bool = true) {
+        let rest = belowFoldCollection.detailsRestOff
+        let distance = max(1, rest)
+        if off <= 0 || off >= distance {
+            progressAnchor = nil
+        }
+        if let anchor = progressAnchor {
+            if off <= anchor.offset {
+                scrollFraction = anchor.fraction * (off / anchor.offset)
+            } else {
+                let remaining = (off - anchor.offset) / (distance - anchor.offset)
+                scrollFraction = anchor.fraction + (1 - anchor.fraction) * remaining
+            }
+        } else {
+            scrollFraction = min(1, max(0, off / distance))
+        }
+        let progress = scrollProgress
+        applyRowOpacity(at: progress)
         // Past details rest, the logo and pills move with the rail.
-        let dy = belowFoldCollection.detailsRestOff - off
-        let titleY = dy > 0 ? dy * heroTravelDistance / max(1, belowFoldCollection.detailsRestOff) : dy
+        let dy = rest - off
+        let titleY = dy > 0 ? (1 - scrollFraction) * heroTravelDistance : dy
         seasonsHeader.transform = CGAffineTransform(translationX: 0, y: dy)
         smallTitleLogo.transform = CGAffineTransform(translationX: 0, y: titleY)
         belowFoldCollection.setLowerRowsOffset(titleY - dy)
-        onScrollProgress?(scrollProgress)
+        if notifyHero { onScrollProgress?(progress) }
+    }
+
+    private func applyRowOpacity(at progress: CGFloat) {
+        let titleOpacity = max(0, 2 * progress - 1)
+        smallTitleLogo.alpha = titleOpacity
+        seasonsHeader.alpha = titleOpacity
+        belowFoldCollection.firstHeaderAlpha = progress
     }
 
     /// After the expand morph: loads cast and related. Stays non-interactive so Down
@@ -496,14 +521,14 @@ final class ExpandedDetailContainerView: UIView {
     /// Reset the scroll to the rest (peek) state. Keeps the surface visible and
     /// the episode-peek cascade alpha intact — only the scroll is zeroed.
     func reset() {
-        scrollOffset = 0
+        scrollFraction = 0
+        progressAnchor = nil
         contentView.transform = .identity
         episodesTopConstraint.constant = Self.peekTopGap
         layoutIfNeeded()
-        smallTitleLogo.alpha = belowFoldTitleOpacity
-        seasonsHeader.alpha = belowFoldTitleOpacity
-        belowFoldCollection.firstHeaderAlpha = scrollProgress
-        onScrollProgress?(scrollProgress)
+        let progress = scrollProgress
+        applyRowOpacity(at: progress)
+        onScrollProgress?(progress)
     }
 
     // MARK: - Episode-peek cascade (chrome-synced; page changes, not scroll)
