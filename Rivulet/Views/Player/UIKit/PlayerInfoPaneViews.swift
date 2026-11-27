@@ -112,7 +112,6 @@ final class PlayerInfoCardView: UIView {
         posterView.layer.cornerRadius = Metrics.posterRadius
         posterView.layer.cornerCurve = .continuous
         posterView.backgroundColor = adaptive ? .clear : UIColor.white.withAlphaComponent(0.08)
-        if adaptive { posterWidth.priority = .init(999) }
 
         let title = UILabel()
         title.text = content.title
@@ -184,6 +183,7 @@ final class PlayerInfoCardView: UIView {
         let preferredHeight = heightAnchor.constraint(equalToConstant: Metrics.height)
         let preferredMetadataTop = meta.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.metaTop)
         if adaptive {
+            posterWidth.priority = .required - 2
             preferredHeight.priority = .defaultHigh - 1
             preferredMetadataTop.priority = .defaultHigh - 1
         }
@@ -223,7 +223,11 @@ final class PlayerInfoCardView: UIView {
         ])
 
         if adaptive {
+            let readableTextWidth = textColumn.widthAnchor.constraint(greaterThanOrEqualTo: action.widthAnchor)
+            readableTextWidth.priority = .required - 1
             NSLayoutConstraint.activate([
+                readableTextWidth,
+                posterView.widthAnchor.constraint(greaterThanOrEqualToConstant: 0),
                 heightAnchor.constraint(greaterThanOrEqualToConstant: Metrics.height),
                 meta.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: Metrics.metaTop),
                 meta.topAnchor.constraint(greaterThanOrEqualTo: summary.bottomAnchor, constant: 3),

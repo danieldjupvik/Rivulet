@@ -2121,6 +2121,7 @@ class PlayerContainerViewController: UIViewController {
         switch tab {
         case .info:
             let meta = vm.metadata
+            let summary = meta.summary
             var badges: [String] = []
             // No SD badge: Apple's TV app has none.
             switch meta.Media?.first?.videoResolution?.lowercased() {
@@ -2140,7 +2141,7 @@ class PlayerContainerViewController: UIViewController {
             let card = PlayerInfoCardView(content: .init(
                 posterURL: artwork.first,
                 title: vm.infoTitle,
-                summary: meta.summary,
+                summary: summary,
                 genre: vm.infoGenre,
                 runtime: meta.duration.map { MediaDetailChromeView.formatRuntime(TimeInterval($0) / 1000) },
                 badges: badges,
@@ -2162,9 +2163,8 @@ class PlayerContainerViewController: UIViewController {
                     vm?.resume()
                 }
             }
-            card.onExpandSummary = { [weak self, weak vm] source in
-                guard let vm else { return }
-                self?.presentDescription(vm.metadata.summary ?? "", returningTo: source)
+            card.onExpandSummary = { [weak self] source in
+                self?.presentDescription(summary ?? "", returningTo: source)
             }
             return (card, nil)
 

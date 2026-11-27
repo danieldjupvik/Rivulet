@@ -157,6 +157,55 @@ final class CardChoiceSubmenuScrollTests: XCTestCase {
 
 @MainActor
 struct SubtitleLanguageMenuTests {
+    private final class FocusHost: UIViewController {
+        weak var initialFocus: UIView?
+
+        override var preferredFocusEnvironments: [UIFocusEnvironment] {
+            initialFocus.map { [$0] } ?? super.preferredFocusEnvironments
+        }
+    }
+
+    @Test(ExclusiveKeyWindowTrait())
+    func backMovesFocusFromTheSelectedTrackToParentLanguage() async throws {
+        let tracks = (1...20).map { MediaTrack(id: $0, name: "Track \($0)", codec: "srt") }
+        let menu = CardTrackListView.subtitleMenu(tracks: tracks, selectedTrackId: 18, onTrackId: 18) { _ in }
+        let scene = try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        let controller = FocusHost()
+        window.rootViewController = controller
+        menu.frame = CGRect(x: 100, y: 100, width: 480, height: 506)
+        controller.view.addSubview(menu)
+        let language = try #require(rows(in: menu).first { $0.showsChevron })
+        controller.initialFocus = language
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousKeyWindow?.makeKey()
+        }
+        controller.view.layoutIfNeeded()
+
+        let focus = try #require(UIFocusSystem.focusSystem(for: menu))
+        func expectFocus(on row: CardTrackRowButton, sourceLocation: SourceLocation = #_sourceLocation) async throws {
+            let deadline = ContinuousClock.now + .seconds(2)
+            while focus.focusedItem !== row, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(5))
+            }
+            try #require(focus.focusedItem === row, sourceLocation: sourceLocation)
+        }
+
+        try await expectFocus(on: language)
+        controller.initialFocus = nil
+        language.onTap?()
+        let selectedTrack = try #require(rows(in: menu).first { $0.row.trackId == 18 })
+        try await expectFocus(on: selectedTrack)
+
+        try #require(menu.handleMenuPress())
+        let parentLanguage = try #require(rows(in: menu).first { $0.showsChevron })
+        try await expectFocus(on: parentLanguage)
+    }
+
     @Test
     func backRestoresTheParentAfterScrollingLanguage() throws {
         let tracks = (1...20).map { MediaTrack(id: $0, name: "Track \($0)", codec: "srt") }

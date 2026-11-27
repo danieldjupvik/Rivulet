@@ -641,6 +641,20 @@ final class ProviderPlaybackSourceTests: XCTestCase {
 @MainActor
 struct ProviderPlayerDeliveryTests {
     @Test
+    func stoppingPlaybackClearsActiveShuttleScrubbing() {
+        let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
+        let vm = makePlayer(provider)
+        vm.scrubInDirection(forward: true)
+        #expect(vm.isScrubbing)
+        #expect(vm.scrubSpeed == 1)
+
+        vm.stopPlayback()
+
+        #expect(!vm.isScrubbing)
+        #expect(vm.scrubSpeed == 0)
+    }
+
+    @Test
     func lateFramesCannotReplaceNewerFramesOrSurviveCancellation() async throws {
         let provider = StubMediaProvider(id: "jellyfin:srv", kind: .jellyfin)
         let older = PlayerResultGate<CGImage?>()

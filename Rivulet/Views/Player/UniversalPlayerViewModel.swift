@@ -4314,6 +4314,11 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         muteEdgeWork = nil
         subtitleImageReader.read([])
         releaseThumbnailCache()
+        stopScrubTimer()
+        stopWheelScrubbingTimer()
+        isScrubbing = false
+        scrubSpeed = 0
+        scrubStartTime = nil
         cancelScrubThumbnailRequests()
 
         // Clear the active playback route and content from the App Hang scope
@@ -4348,9 +4353,6 @@ final class UniversalPlayerViewModel: ObservableObject, WatchTogetherPlayer {
         controlsTimer?.invalidate()
         controlsTimer = nil
         autoHideBackDeadline = nil
-        wheelScrubbingTimer?.invalidate()
-        wheelScrubbingTimer = nil
-        wheelScrubbing = false
         // The pause screen comes down through its one path (`pausePresentation`
         // back to `.frame`), so the container restores the picture and stops the
         // screen's timers however the player is left.

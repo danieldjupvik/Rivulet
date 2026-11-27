@@ -31,11 +31,11 @@ struct PlayerInfoCardLayoutTests {
         #expect(vm.infoArtworkURLs.map(\.absoluteString) == [expectedURL, "http://plex.local/season?X-Plex-Token=t"])
     }
 
-    @Test
-    func adaptiveArtworkFallsBackAndUsesTheLoadedAspectRatio() async throws {
+    @Test(arguments: [60, 160, 720])
+    func adaptiveArtworkFallsBackAndFitsBesideTheText(_ imageWidth: Int) async throws {
         let missing = try #require(URL(string: "https://artwork.test/missing"))
         let fallback = try #require(URL(string: "https://artwork.test/wide"))
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 160, height: 90)).image { _ in }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: imageWidth, height: 90)).image { _ in }
         var requests = [URL]()
         let card = PlayerInfoCardView(content: .init(
             posterURL: missing, title: "Episode", summary: nil, genre: nil, runtime: nil,
@@ -53,7 +53,15 @@ struct PlayerInfoCardLayoutTests {
         #expect(requests == [missing, fallback])
         #expect(poster.isHidden == false)
         #expect(poster.bounds.height == PlayerInfoCardView.Metrics.poster.height)
-        #expect(abs(poster.bounds.width - PlayerInfoCardView.Metrics.poster.height * 16 / 9) < 1)
+        let naturalWidth = PlayerInfoCardView.Metrics.poster.height * image.size.width / image.size.height
+        let summary = try #require(card.subviews.compactMap { $0 as? PlayerSummaryButton }.first)
+        let text = try #require(summary.subviews.compactMap { $0 as? PlayerSummaryTextView }.first)
+        if imageWidth == 720 {
+            #expect(poster.bounds.width > 0 && poster.bounds.width < naturalWidth)
+            #expect(text.bounds.width >= PlayerInfoCardView.Metrics.actionWidth)
+        } else {
+            #expect(abs(poster.bounds.width - naturalWidth) < 1)
+        }
     }
 
     @Test
