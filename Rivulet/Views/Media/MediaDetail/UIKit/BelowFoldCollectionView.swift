@@ -1179,6 +1179,9 @@ final class BelowFoldCollectionView: UIView, UICollectionViewDelegate {
         bounds.height - Self.episodePeek - topInset + posterInset
     }
 
+    /// False until a load lands: Down must not slide into an empty page, where focus has nowhere to go.
+    var hasRows: Bool { !sectionKinds.isEmpty }
+
     /// Whether focus is on the episodes (top) row vs a lower section. Drives the
     /// Up handler: episodes → pills; lower section → let the engine move up.
     var focusIsOnEpisodes: Bool { collectionView.focusedCellIsTopSection }

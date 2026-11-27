@@ -272,6 +272,8 @@ final class PreviewCardView: UICollectionViewCell {
     var onPlay: ((MediaItem) -> Void)?
     /// Versions → play `item` from the picked file. Set by the VC in cellForItemAt.
     var onPlayVersion: ((MediaItem, String) -> Void)?
+    /// Another library's or server's copy, carrying the resume point `VersionPicker.pick` gave it.
+    var onPlayCopy: ((MediaItem, String) -> Void)?
     /// Info button → show the structured info popup (carries the loaded detail).
     var onShowInfo: ((MediaItemDetail) -> Void)?
 
@@ -303,6 +305,9 @@ final class PreviewCardView: UICollectionViewCell {
         chromeView.onPlayVersion = { [weak self] sourceID in
             guard let self, let item = self.chromeView.item else { return }
             self.onPlayVersion?(item, sourceID)
+        }
+        chromeView.onPlayCopy = { [weak self] copy, sourceID in
+            self?.onPlayCopy?(copy, sourceID)
         }
         chromeView.onShowFullDescription = { [weak self] detail in
             self?.onShowInfo?(detail)

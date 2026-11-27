@@ -288,7 +288,7 @@ struct BelowFoldInitialSelectionTests {
         #expect(collection.lastFocusedIndexPath == IndexPath(item: 0, section: 0))
     }
 
-    @Test func carouselKeepsFocusOnItsAnchorUntilALateRowCanTakeIt() async throws {
+    @Test func carouselWaitsForRowsAndKeepsFocusOnItsAnchorDuringHandoff() async throws {
         let title = item("movie", .movie)
         let provider = StubMediaProvider(id: providerID)
         provider.detailResult = MediaItemDetail(
@@ -331,6 +331,13 @@ struct BelowFoldInitialSelectionTests {
             let start = CACurrentMediaTime()
             for frame in 1...240 { below.advanceSlide(at: start + Double(frame) / 60) }
         }
+        let emptyHeroOffset = collection.contentOffset.y
+        controller.enterBelowFold()
+        #expect(collection.contentOffset.y == emptyHeroOffset)
+        #expect(focus.focusedItem === play)
+
+        below.configure(item: title, detail: provider.detailResult)
+        try await waitUntil { collection.numberOfSections > 0 }
         let heroOffset = collection.contentOffset.y
         controller.enterBelowFold()
         #expect(!collection.isScrollEnabled)
@@ -344,8 +351,6 @@ struct BelowFoldInitialSelectionTests {
         finishSlide()
         #expect(chrome.transform.ty == -details.heroTravelDistance)
         #expect(chrome.chromeAlpha == 1)
-        #expect(focus.focusedItem === anchor)
-        below.configure(item: title, detail: provider.detailResult)
         try await waitUntil { collection.focusedCellIsTopSection }
 
         hero.isHidden = true
